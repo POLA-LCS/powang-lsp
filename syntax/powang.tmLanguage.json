@@ -1,0 +1,64 @@
+{
+  "name": "Powang",
+  "scopeName": "source.powang",
+  "fileTypes": ["po"],
+  "uuid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#string" },
+    { "include": "#keyword" },
+    { "include": "#literal" },
+    { "include": "#operator" },
+    { "include": "#builtin" },
+    { "include": "#identifier" }
+  ],
+  "repository": {
+    "comment": {
+      "name": "comment.line.double-hash.powang",
+      "match": "##.*$"
+    },
+    "string": {
+      "name": "string.quoted.double.powang",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        { "name": "constant.character.escape.powang", "match": "\\\\[ntr0\\\\\"]" }
+      ]
+    },
+    "keyword": {
+      "name": "keyword.control.powang",
+      "match": "\\b(if|else|for|fun|return|use|type|extern|try|catch|finally|spawn|export)\\b"
+    },
+    "literal": {
+      "patterns": [
+        { "name": "constant.numeric.float.powang", "match": "\\b\\d+\\.\\d+(?:[eE][+-]?\\d+)?\\b" },
+        { "name": "constant.numeric.float.powang", "match": "\\b\\d+[eE][+-]?\\d+\\b" },
+        { "name": "constant.numeric.integer.powang", "match": "\\b\\d+\\b" },
+        { "name": "constant.language.powang", "match": "\\b(nova|true|false)\\b" }
+      ]
+    },
+    "operator": {
+      "patterns": [
+        { "name": "keyword.operator.logical.powang", "match": "&&|\\|\\||::|!:" },
+        { "name": "keyword.operator.comparison.powang", "match": "==|!=|<=|>=|<|>" },
+        { "name": "keyword.operator.assignment.powang", "match": "\\+=|-=|\\*=|/=|=" },
+        { "name": "keyword.operator.arithmetic.powang", "match": "\\+|-|\\*|/|%|\\[-\\]" },
+        { "name": "keyword.operator.reference.powang", "match": "&" },
+        { "name": "keyword.operator.cast.powang", "match": "\\bas\\b" },
+        { "name": "keyword.operator.type.powang", "match": "@|!" },
+        { "name": "keyword.operator.arrow.powang", "match": ">>" },
+        { "name": "keyword.operator.question.powang", "match": "\\?" },
+        { "name": "punctuation.section.powang", "match": "[\\[\\]{}()]" },
+        { "name": "punctuation.separator.powang", "match": "[;,]" }
+      ]
+    },
+    "builtin": {
+      "name": "support.function.builtin.powang",
+      "match": "\\b(output|format|printf|error|fail|input|typeof|size|open|write|read|close|system|spawn|wait|cancel|task_status)\\b"
+    },
+    "identifier": {
+      "name": "variable.other.powang",
+      "match": "[a-zA-Z_][a-zA-Z0-9_]*"
+    }
+  }
+}
