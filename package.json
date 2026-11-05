@@ -1,19 +1,19 @@
 {
   "name": "powang-lsp",
   "displayName": "Powang LSP",
-  "description": "Syntax highlighting, diagnostics and completion for the Powang language",
-  "version": "0.2.0",
+  "description": "Language support for the Powang programming language",
+  "version": "0.4.0",
   "publisher": "POLA-LCS",
   "license": "MIT",
   "icon": "icon.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/POLA-LCS/powang-vscode"
+    "url": "https://github.com/POLA-LCS/powang-lsp"
   },
   "bugs": {
-    "url": "https://github.com/POLA-LCS/powang-vscode/issues"
+    "url": "https://github.com/POLA-LCS/powang-lsp/issues"
   },
-  "homepage": "https://github.com/POLA-LCS/powang-vscode#readme",
+  "homepage": "https://github.com/POLA-LCS/powang-lsp#readme",
   "engines": {
     "vscode": "^1.70.0"
   },
@@ -28,7 +28,8 @@
   ],
   "main": "./extension.js",
   "activationEvents": [
-    "onLanguage:powang"
+    "onLanguage:powang",
+    "onCommand:powang.server.restart"
   ],
   "contributes": {
     "languages": [
@@ -44,6 +45,12 @@
         "language": "powang",
         "scopeName": "source.powang",
         "path": "./syntax/powang.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "powang.server.restart",
+        "title": "Powang: Restart Language Server"
       }
     ],
     "configuration": {
@@ -62,7 +69,7 @@
         "powang.server.repositoryPath": {
           "type": "string",
           "default": "",
-          "description": "Path to the powang repository root. The LSP server is launched from this directory so it can import src/."
+          "description": "Path to the powang repository root. The bundled LSP server imports the language implementation from this directory."
         }
       }
     }

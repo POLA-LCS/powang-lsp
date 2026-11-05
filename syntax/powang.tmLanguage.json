@@ -14,20 +14,20 @@
   ],
   "repository": {
     "comment": {
-      "name": "comment.line.double-hash.powang",
-      "match": "##.*$"
+      "patterns": [
+        { "name": "comment.line.double-hash.powang", "match": "##.*$" },
+        { "name": "comment.block.powang", "begin": "#!", "end": "!#" }
+      ]
     },
     "string": {
-      "name": "string.quoted.double.powang",
-      "begin": "\"",
-      "end": "\"",
       "patterns": [
-        { "name": "constant.character.escape.powang", "match": "\\\\[ntr0\\\\\"]" }
+        { "name": "string.quoted.double.interpolated.powang", "match": "\\$\\\"(?:\\\\.|[^\\\"])*\\\"" },
+        { "name": "string.quoted.double.powang", "match": "\\\"(?:\\\\.|[^\\\"])*\\\"" }
       ]
     },
     "keyword": {
       "name": "keyword.control.powang",
-      "match": "\\b(if|else|for|fun|return|use|type|extern|try|catch|finally|spawn|export)\\b"
+      "match": "\\b(if|else|for|fun|return|use|type|extern|try|catch|finally|spawn|export|match|case|const)\\b"
     },
     "literal": {
       "patterns": [
@@ -40,6 +40,8 @@
     "operator": {
       "patterns": [
         { "name": "keyword.operator.logical.powang", "match": "&&|\\|\\||::|!:" },
+        { "name": "keyword.operator.pipeline.powang", "match": "\\|>" },
+        { "name": "keyword.operator.null.powang", "match": "\\?\\.|\\?\\?" },
         { "name": "keyword.operator.comparison.powang", "match": "==|!=|<=|>=|<|>" },
         { "name": "keyword.operator.assignment.powang", "match": "\\+=|-=|\\*=|/=|=" },
         { "name": "keyword.operator.arithmetic.powang", "match": "\\+|-|\\*|/|%|\\[-\\]" },
@@ -54,7 +56,7 @@
     },
     "builtin": {
       "name": "support.function.builtin.powang",
-      "match": "\\b(output|format|printf|error|fail|input|typeof|size|open|write|read|close|system|spawn|wait|cancel|task_status)\\b"
+      "match": "\\b(print|println|format|printf|error|fail|input|inputf|typeof|size|open|write|read|close|system|wait|cancel|task_status)\\b"
     },
     "identifier": {
       "name": "variable.other.powang",

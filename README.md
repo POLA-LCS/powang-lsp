@@ -4,9 +4,15 @@ Syntax highlighting, diagnostics and completion for the [Powang](https://github.
 
 ## Features
 
-- **Syntax highlighting** via TextMate grammar
-- **Diagnostics** from the parser and gradual type checker
-- **Keyword and builtin completion** (30 items)
+- **Syntax highlighting** via TextMate grammar and semantic tokens, including typed arrays,
+  pattern matching, destructuring, interpolation and null-safe operators
+- **Diagnostics** from the parser and gradual type checker, including typed array element checks
+- **Keyword and builtin completion**
+- **Hover** for keywords, builtins, and identifiers
+- **Go to definition and declaration**
+- **Document and workspace symbols**
+- **Find references and rename**
+- **Formatting**
 - **Language configuration**: brackets, comments, indentation rules, auto-closing pairs
 
 ## Installation
@@ -34,7 +40,9 @@ code --extensionDevelopmentPath=.
 
 ## LSP server
 
-The extension starts the powang LSP server automatically. The server requires Python 3.12+ and the powang repository on the Python path.
+The extension bundles the LSP server at `server/powang_lsp.py` and starts it
+automatically. The server requires Python 3.12+ and a checkout of the powang
+repository, because it imports the language implementation from `src/`.
 
 Configure the Python interpreter in your VS Code settings:
 
@@ -52,15 +60,20 @@ If Python is not on your PATH, set the full path:
 }
 ```
 
-The server script (`powang_lsp.py`) is expected to be at `<powang_repo>/tools/powang_lsp.py`. Set the `powang.server.extraArgs` setting to pass additional arguments.
+Set `powang.server.repositoryPath` to the powang repository root. If the
+workspace itself is the powang repository, the extension detects it
+automatically. Set the `powang.server.extraArgs` setting to pass additional
+arguments to the server.
 
 ## What the LSP does
 
 - Publishes syntax diagnostics from the parser.
 - Publishes type diagnostics from the gradual checker.
 - Offers keyword and builtin completion.
-
-It does not yet provide hover, rename or goto-definition.
+- Provides hover, goto definition and declaration.
+- Provides document and workspace symbols.
+- Provides find references and rename.
+- Provides formatting and semantic tokens.
 
 ## Links
 

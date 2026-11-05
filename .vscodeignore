@@ -1,7 +1,8 @@
 .vscode/**
+.github/**
 .gitignore
 .gitattributes
 *.vsix
 node_modules/**
-src/**
-tsconfig.json
+**/__pycache__/**
+**/*.pyc
