@@ -368,7 +368,24 @@ function activate(context) {
     });
 
     const semanticLegend = new vscode.SemanticTokensLegend(
-        ['keyword', 'type', 'function', 'variable', 'string', 'number', 'comment', 'operator'],
+        [
+            'namespace',
+            'type',
+            'parameter',
+            'variable',
+            'property',
+            'function',
+            'method',
+            'macro',
+            'keyword',
+            'comment',
+            'string',
+            'number',
+            'operator',
+            'builtin',
+            'builtinType',
+            'constant',
+        ],
         []
     );
     const semanticProvider = vscode.languages.registerDocumentSemanticTokensProvider('powang', {

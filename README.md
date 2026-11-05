@@ -6,6 +6,8 @@ Syntax highlighting, diagnostics and completion for the [Powang](https://github.
 
 - **Syntax highlighting** via TextMate grammar and semantic tokens, including typed arrays,
   pattern matching, destructuring, interpolation and null-safe operators
+- **Distinct colors** for builtins, builtin types, user types, module names, functions,
+  methods, parameters, properties, macros, constants, variables and keywords
 - **Diagnostics** from the parser and gradual type checker, including typed array element checks
 - **Keyword and builtin completion**
 - **Hover** for keywords, builtins, and identifiers
@@ -14,6 +16,14 @@ Syntax highlighting, diagnostics and completion for the [Powang](https://github.
 - **Find references and rename**
 - **Formatting**
 - **Language configuration**: brackets, comments, indentation rules, auto-closing pairs
+
+## Colors
+
+The extension ships the `Powang Dark` color theme. Every language feature has its own
+color, including builtins, builtin types, user types, module names, functions, methods,
+parameters, properties, macros, constants, variables and keywords.
+
+Select it from `Preferences: Color Theme` and choose `Powang Dark`.
 
 ## Installation
 

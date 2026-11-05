@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0
+
+### Added
+- Distinct semantic token colors for builtins, builtin types, user types, module names,
+  functions, methods, parameters, properties, macros, constants, variables and keywords.
+- Bundled `Powang Dark` color theme with a unique color for each language feature.
+- Expanded TextMate scopes for declarations, type annotations, builtins, builtin types,
+  namespaces and properties.
+
 ## 0.4.0
 
 ### Added

@@ -1,0 +1,121 @@
+{
+  "name": "Powang Dark",
+  "type": "dark",
+  "semanticHighlighting": true,
+  "colors": {
+    "editor.background": "#0f1420",
+    "editor.foreground": "#abb2bf",
+    "editorCursor.foreground": "#56b6c2",
+    "editor.selectionBackground": "#2a3450",
+    "editor.lineHighlightBackground": "#161d2d",
+    "editorLineNumber.foreground": "#4b587c",
+    "editorLineNumber.activeForeground": "#9aa5ce",
+    "editorIndentGuide.background1": "#1f2940",
+    "editorIndentGuide.activeBackground1": "#3b4a6b",
+    "editorBracketMatch.background": "#2a3450",
+    "editorBracketMatch.border": "#56b6c2",
+    "editorError.foreground": "#e06c75",
+    "editorWarning.foreground": "#e5c07b",
+    "editorInfo.foreground": "#2bb3a3",
+    "editorHint.foreground": "#61afef",
+    "terminal.background": "#0f1420",
+    "terminal.foreground": "#abb2bf"
+  },
+  "tokenColors": [
+    {
+      "scope": ["comment", "comment.line.double-hash.powang", "comment.block.powang"],
+      "settings": { "foreground": "#6b7280", "fontStyle": "italic" }
+    },
+    {
+      "scope": ["keyword", "keyword.control.powang"],
+      "settings": { "foreground": "#c678dd" }
+    },
+    {
+      "scope": [
+        "keyword.operator",
+        "keyword.operator.logical.powang",
+        "keyword.operator.pipeline.powang",
+        "keyword.operator.null.powang",
+        "keyword.operator.comparison.powang",
+        "keyword.operator.assignment.powang",
+        "keyword.operator.arithmetic.powang",
+        "keyword.operator.reference.powang",
+        "keyword.operator.cast.powang",
+        "keyword.operator.type.powang",
+        "keyword.operator.arrow.powang",
+        "keyword.operator.question.powang"
+      ],
+      "settings": { "foreground": "#56b6c2" }
+    },
+    {
+      "scope": ["string", "string.quoted.double.powang", "string.quoted.double.interpolated.powang"],
+      "settings": { "foreground": "#98c379" }
+    },
+    {
+      "scope": ["constant.numeric", "constant.numeric.float.powang", "constant.numeric.integer.powang"],
+      "settings": { "foreground": "#d19a66" }
+    },
+    {
+      "scope": ["constant.language.powang"],
+      "settings": { "foreground": "#e5c07b" }
+    },
+    {
+      "scope": ["support.function.builtin.powang"],
+      "settings": { "foreground": "#e06c75", "fontStyle": "bold" }
+    },
+    {
+      "scope": ["support.type.primitive.powang"],
+      "settings": { "foreground": "#61afef" }
+    },
+    {
+      "scope": ["entity.name.type.powang"],
+      "settings": { "foreground": "#f5c2e7" }
+    },
+    {
+      "scope": ["entity.name.namespace.powang"],
+      "settings": { "foreground": "#2bb3a3" }
+    },
+    {
+      "scope": ["entity.name.function.powang"],
+      "settings": { "foreground": "#7aa2f7" }
+    },
+    {
+      "scope": ["entity.name.constant.powang"],
+      "settings": { "foreground": "#ff6b9d" }
+    },
+    {
+      "scope": ["variable.parameter.powang"],
+      "settings": { "foreground": "#ffb86c" }
+    },
+    {
+      "scope": ["variable.other.property.powang"],
+      "settings": { "foreground": "#cba6f7" }
+    },
+    {
+      "scope": ["variable.other.powang", "variable"],
+      "settings": { "foreground": "#abb2bf" }
+    },
+    {
+      "scope": ["punctuation.section.powang", "punctuation.separator.powang"],
+      "settings": { "foreground": "#9aa5ce" }
+    }
+  ],
+  "semanticTokenColors": {
+    "namespace": "#2bb3a3",
+    "type": "#f5c2e7",
+    "parameter": "#ffb86c",
+    "variable": "#abb2bf",
+    "property": "#cba6f7",
+    "function": "#7aa2f7",
+    "method": "#4fd6be",
+    "macro": "#ff6b9d",
+    "keyword": "#c678dd",
+    "comment": "#6b7280",
+    "string": "#98c379",
+    "number": "#d19a66",
+    "operator": "#56b6c2",
+    "builtin": "#e06c75",
+    "builtinType": "#61afef",
+    "constant": "#e5c07b"
+  }
+}

@@ -6,10 +6,15 @@
   "patterns": [
     { "include": "#comment" },
     { "include": "#string" },
+    { "include": "#declaration" },
+    { "include": "#type-annotation" },
     { "include": "#keyword" },
     { "include": "#literal" },
-    { "include": "#operator" },
+    { "include": "#builtin-type" },
     { "include": "#builtin" },
+    { "include": "#operator" },
+    { "include": "#module-member" },
+    { "include": "#property-access" },
     { "include": "#identifier" }
   ],
   "repository": {
@@ -25,9 +30,54 @@
         { "name": "string.quoted.double.powang", "match": "\\\"(?:\\\\.|[^\\\"])*\\\"" }
       ]
     },
+    "declaration": {
+      "patterns": [
+        {
+          "match": "\\b(fun)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.control.powang" },
+            "2": { "name": "entity.name.function.powang" }
+          }
+        },
+        {
+          "match": "\\b(type)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.control.powang" },
+            "2": { "name": "entity.name.type.powang" }
+          }
+        },
+        {
+          "match": "\\b(const)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.control.powang" },
+            "2": { "name": "entity.name.constant.powang" }
+          }
+        },
+        {
+          "match": "\\b(use)\\s+(?:\"([^\"]*)\"|([A-Za-z_][A-Za-z0-9_]*))",
+          "captures": {
+            "1": { "name": "keyword.control.powang" },
+            "2": { "name": "string.quoted.double.powang" },
+            "3": { "name": "entity.name.namespace.powang" }
+          }
+        },
+        {
+          "match": "\\bas\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "entity.name.namespace.powang" }
+          }
+        }
+      ]
+    },
+    "type-annotation": {
+      "match": ":\\s*([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "entity.name.type.powang" }
+      }
+    },
     "keyword": {
-      "name": "keyword.control.powang",
-      "match": "\\b(if|else|for|fun|return|use|type|extern|try|catch|finally|spawn|export|match|case|const)\\b"
+      "match": "\\b(if|else|for|fun|return|use|type|extern|try|catch|finally|spawn|export|match|case|const)\\b",
+      "name": "keyword.control.powang"
     },
     "literal": {
       "patterns": [
@@ -36,6 +86,14 @@
         { "name": "constant.numeric.integer.powang", "match": "\\b\\d+\\b" },
         { "name": "constant.language.powang", "match": "\\b(nova|true|false)\\b" }
       ]
+    },
+    "builtin-type": {
+      "match": "\\b(some|integer|number|boolean|string|array|map|function|file|task)\\b",
+      "name": "support.type.primitive.powang"
+    },
+    "builtin": {
+      "match": "\\b(print|println|format|printf|error|fail|input|inputf|typeof|size|open|write|read|close|system|wait|cancel|task_status)\\b",
+      "name": "support.function.builtin.powang"
     },
     "operator": {
       "patterns": [
@@ -54,13 +112,22 @@
         { "name": "punctuation.separator.powang", "match": "[;,]" }
       ]
     },
-    "builtin": {
-      "name": "support.function.builtin.powang",
-      "match": "\\b(print|println|format|printf|error|fail|input|inputf|typeof|size|open|write|read|close|system|wait|cancel|task_status)\\b"
+    "module-member": {
+      "match": "\\b([A-Za-z_][A-Za-z0-9_]*)\\s*\\.\\s*([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "entity.name.namespace.powang" },
+        "2": { "name": "variable.other.property.powang" }
+      }
+    },
+    "property-access": {
+      "match": "\\.\\s*([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "variable.other.property.powang" }
+      }
     },
     "identifier": {
       "name": "variable.other.powang",
-      "match": "[a-zA-Z_][a-zA-Z0-9_]*"
+      "match": "[A-Za-z_][A-Za-z0-9_]*"
     }
   }
 }

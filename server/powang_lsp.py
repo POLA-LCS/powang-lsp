@@ -31,6 +31,31 @@ BUILTINS = [
     "open", "write", "read", "close", "system", "wait", "cancel", "task_status",
 ]
 
+BUILTIN_TYPES = {
+    "some", "integer", "number", "boolean", "string", "array", "map",
+    "function", "file", "task",
+}
+
+SEMANTIC_TOKEN_TYPES = [
+    "namespace",
+    "type",
+    "parameter",
+    "variable",
+    "property",
+    "function",
+    "method",
+    "macro",
+    "keyword",
+    "comment",
+    "string",
+    "number",
+    "operator",
+    "builtin",
+    "builtinType",
+    "constant",
+]
+SEMANTIC_TYPE_INDEX = {name: index for index, name in enumerate(SEMANTIC_TOKEN_TYPES)}
+
 DOCUMENTS: dict[str, str] = {}
 
 
@@ -202,7 +227,7 @@ def handle_initialize(request_id) -> None:
                 "documentFormattingProvider": True,
                 "semanticTokensProvider": {
                     "legend": {
-                        "tokenTypes": ["keyword", "type", "function", "variable", "string", "number", "comment", "operator"],
+                        "tokenTypes": SEMANTIC_TOKEN_TYPES,
                         "tokenModifiers": [],
                     },
                     "full": True,
@@ -210,7 +235,7 @@ def handle_initialize(request_id) -> None:
             },
             "serverInfo": {
                 "name": "powang-lsp",
-                "version": "0.4.0",
+                "version": "0.5.0",
             },
         },
     })
@@ -430,34 +455,280 @@ def handle_formatting(request_id, params) -> None:
     })
 
 
+def _scan_semantic_tokens(text: str) -> list[dict]:
+    tokens: list[dict] = []
+    line = 0
+    col = 0
+    i = 0
+    n = len(text)
+    multi_ops = (
+        ">>", "|>", "?.", "??", "==", "!=", "<=", ">=",
+        "&&", "||", "::", "!:", "+=", "-=", "*=", "/=",
+    )
+    while i < n:
+        ch = text[i]
+        if ch == "\n":
+            line += 1
+            col = 0
+            i += 1
+            continue
+
+        if text.startswith("#!", i):
+            start_line, start_col = line, col
+            end = text.find("!#", i + 2)
+            end = n if end == -1 else end + 2
+            value = text[i:end]
+            tokens.append({"kind": "comment", "value": value, "line": start_line, "col": start_col})
+            for char in value:
+                if char == "\n":
+                    line += 1
+                    col = 0
+                else:
+                    col += 1
+            i = end
+            continue
+
+        if text.startswith("##", i):
+            start_line, start_col = line, col
+            end = text.find("\n", i)
+            end = n if end == -1 else end
+            value = text[i:end]
+            tokens.append({"kind": "comment", "value": value, "line": start_line, "col": start_col})
+            col += len(value)
+            i = end
+            continue
+
+        if ch == '"' or (ch == "$" and i + 1 < n and text[i + 1] == '"'):
+            start_line, start_col = line, col
+            start = i
+            if ch == "$":
+                i += 1
+                col += 1
+            i += 1
+            col += 1
+            while i < n:
+                current = text[i]
+                if current == "\\" and i + 1 < n:
+                    i += 2
+                    col += 2
+                    continue
+                if current == '"':
+                    i += 1
+                    col += 1
+                    break
+                if current == "\n":
+                    line += 1
+                    col = 0
+                    i += 1
+                    continue
+                i += 1
+                col += 1
+            tokens.append({"kind": "string", "value": text[start:i], "line": start_line, "col": start_col})
+            continue
+
+        if ch.isalpha() or ch == "_":
+            start = i
+            start_line, start_col = line, col
+            while i < n and (text[i].isalnum() or text[i] == "_"):
+                i += 1
+                col += 1
+            tokens.append({"kind": "identifier", "value": text[start:i], "line": start_line, "col": start_col})
+            continue
+
+        if ch.isdigit():
+            start = i
+            start_line, start_col = line, col
+            while i < n and (
+                text[i].isdigit()
+                or text[i] in ".eE"
+                or (text[i] in "+-" and i > start and text[i - 1] in "eE")
+            ):
+                i += 1
+                col += 1
+            tokens.append({"kind": "number", "value": text[start:i], "line": start_line, "col": start_col})
+            continue
+
+        matched = None
+        for operator in multi_ops:
+            if text.startswith(operator, i):
+                matched = operator
+                break
+        if matched is not None:
+            tokens.append({"kind": "operator", "value": matched, "line": line, "col": col})
+            i += len(matched)
+            col += len(matched)
+            continue
+
+        if ch in "{}()[],;.+-*/%=&|<>!?:@":
+            tokens.append({"kind": "operator", "value": ch, "line": line, "col": col})
+            i += 1
+            col += 1
+            continue
+
+        i += 1
+        col += 1
+    return tokens
+
+
+def _classify_semantic_tokens(tokens: list[dict]) -> None:
+    user_types: set[str] = set()
+    functions: set[str] = set()
+    macros: set[str] = set()
+    modules: set[str] = set()
+    declarations: dict[int, str] = {}
+
+    for index, token in enumerate(tokens):
+        if token["kind"] != "identifier":
+            continue
+        word = token["value"]
+        previous = tokens[index - 1] if index > 0 else None
+        previous_word = previous["value"] if previous and previous["kind"] == "identifier" else None
+        if previous_word == "fun":
+            functions.add(word)
+            declarations[index] = "function"
+        elif previous_word == "type":
+            user_types.add(word)
+            declarations[index] = "type"
+        elif previous_word == "const":
+            macros.add(word)
+            declarations[index] = "macro"
+        elif previous_word == "use":
+            modules.add(word)
+            declarations[index] = "namespace"
+        elif previous_word == "as":
+            modules.add(word)
+            declarations[index] = "namespace"
+
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token["kind"] == "identifier" and token["value"] == "fun":
+            cursor = index + 1
+            while cursor < len(tokens) and tokens[cursor]["kind"] != "identifier":
+                cursor += 1
+            while cursor < len(tokens) and tokens[cursor]["value"] != "(":
+                cursor += 1
+            if cursor >= len(tokens):
+                break
+            depth = 0
+            cursor += 1
+            while cursor < len(tokens):
+                current = tokens[cursor]
+                if current["value"] == "(":
+                    depth += 1
+                elif current["value"] == ")":
+                    if depth == 0:
+                        break
+                    depth -= 1
+                elif current["kind"] == "identifier" and depth == 0:
+                    next_index = cursor + 1
+                    while next_index < len(tokens) and tokens[next_index]["kind"] == "comment":
+                        next_index += 1
+                    if next_index < len(tokens) and tokens[next_index]["value"] == ":":
+                        if current["value"] not in BUILTIN_TYPES and current["value"] not in user_types:
+                            declarations[cursor] = "parameter"
+                cursor += 1
+            index = cursor
+        index += 1
+
+    for token_index, token in enumerate(tokens):
+        kind = token["kind"]
+        if kind == "comment":
+            token["semantic"] = "comment"
+            continue
+        if kind == "string":
+            token["semantic"] = "string"
+            continue
+        if kind == "number":
+            token["semantic"] = "number"
+            continue
+        if kind == "operator":
+            token["semantic"] = "operator"
+            continue
+        if kind != "identifier":
+            continue
+
+        word = token["value"]
+        if token_index in declarations:
+            token["semantic"] = declarations[token_index]
+            continue
+        if word in KEYWORDS or word == "this":
+            token["semantic"] = "keyword"
+            continue
+        if word == "as":
+            token["semantic"] = "operator"
+            continue
+        if word in BUILTINS:
+            token["semantic"] = "builtin"
+            continue
+        if word in BUILTIN_TYPES:
+            token["semantic"] = "builtinType"
+            continue
+        if word in user_types:
+            token["semantic"] = "type"
+            continue
+        if word in modules:
+            token["semantic"] = "namespace"
+            continue
+        if word in macros:
+            token["semantic"] = "macro"
+            continue
+        if word in functions:
+            token["semantic"] = "function"
+            continue
+        if word in ("true", "false", "nova"):
+            token["semantic"] = "constant"
+            continue
+
+        previous = tokens[token_index - 1] if token_index > 0 else None
+        following = tokens[token_index + 1] if token_index + 1 < len(tokens) else None
+        if previous and previous["value"] == ".":
+            token["semantic"] = "method" if following and following["value"] == "(" else "property"
+            continue
+        if following and following["value"] == "(":
+            token["semantic"] = "function"
+            continue
+        token["semantic"] = "variable"
+
+
+def _encode_semantic_tokens(tokens: list[dict]) -> list[int]:
+    data: list[int] = []
+    previous_line = 0
+    previous_char = 0
+    for token in tokens:
+        semantic = token.get("semantic")
+        if semantic is None:
+            continue
+        type_index = SEMANTIC_TYPE_INDEX[semantic]
+        value = token["value"]
+        start_line = token["line"]
+        start_col = token["col"]
+        if "\n" in value:
+            for part in value.split("\n"):
+                if part:
+                    delta_line = start_line - previous_line
+                    delta_char = start_col if delta_line > 0 else start_col - previous_char
+                    data.extend([delta_line, delta_char, len(part), type_index, 0])
+                    previous_line = start_line
+                    previous_char = start_col
+                start_line += 1
+                start_col = 0
+        else:
+            delta_line = start_line - previous_line
+            delta_char = start_col if delta_line > 0 else start_col - previous_char
+            data.extend([delta_line, delta_char, len(value), type_index, 0])
+            previous_line = start_line
+            previous_char = start_col
+    return data
+
+
 def handle_semantic_tokens(request_id, params) -> None:
     text_doc = params.get("textDocument", {})
     uri = text_doc.get("uri")
     text = DOCUMENTS.get(uri, "")
-    data = []
-    prev_line = 0
-    prev_char = 0
-    for i, line in enumerate(_lines(text)):
-        for m in re.finditer(r"[A-Za-z_][A-Za-z0-9_]*|\d+|\"[^\"]*\"|##.*|[{}()\[\],;]|==|!=|<=|>=|&&|\|\||::|!:|>>|[+\-*/%=&|<>!?:@]", line):
-            tok = m.group(0)
-            if tok in KEYWORDS:
-                ttype = 0
-            elif tok in BUILTINS:
-                ttype = 2
-            elif tok.isdigit():
-                ttype = 5
-            elif tok.startswith('"'):
-                ttype = 4
-            elif tok.startswith("##"):
-                ttype = 6
-            else:
-                ttype = 3
-            delta_line = i - prev_line
-            delta_char = m.start() if delta_line > 0 else m.start() - prev_char
-            data.extend([delta_line, delta_char, len(tok), ttype, 0])
-            prev_line = i
-            prev_char = m.start()
-    send({"jsonrpc": "2.0", "id": request_id, "result": {"data": data}})
+    tokens = _scan_semantic_tokens(text)
+    _classify_semantic_tokens(tokens)
+    send({"jsonrpc": "2.0", "id": request_id, "result": {"data": _encode_semantic_tokens(tokens)}})
 
 
 def dispatch(message: dict) -> bool:
