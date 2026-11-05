@@ -617,6 +617,9 @@ class Parser:
         }).toDict()
         
     def MatchPattern(self):
+        if self.next.type == LexerTokenType.RIGHT_ARROW:
+            ## `case >> expr` is a catch-all wildcard.
+            return {'kind': 'wildcard', 'value': None, 'type': None}
         if self.next.type == LexerTokenType.IDENTIFIER and self.next.value == '_':
             self.advance('match wildcard')
             return {'kind': 'wildcard', 'value': None, 'type': None}
@@ -630,6 +633,18 @@ class Parser:
         }:
             return {'kind': 'literal', 'value': self.Literal('match pattern'), 'type': None}
         if self.next.type == LexerTokenType.IDENTIFIER:
+            # A dotted name such as Color.RED is a literal pattern, not a
+            # binding. Peek ahead without consuming the identifier.
+            saved_position = self.tokenizer.position
+            saved_row = self.tokenizer.row
+            saved_next = self.next
+            self.advance('match pattern')
+            is_access = self.next.type == LexerTokenType.DOT
+            self.tokenizer.position = saved_position
+            self.tokenizer.row = saved_row
+            self.next = saved_next
+            if is_access:
+                return {'kind': 'literal', 'value': self.PostfixExpression(), 'type': None}
             identifier = self.Identifier()
             type_node: DictRepr | None = None
             if self.next.type == LexerTokenType.COLON:
@@ -641,6 +656,39 @@ class Parser:
             'Expected a literal, a binding or _',
             [f'but {LexerTokenType.toStr(self.next.type)} was encountered'],
         ))
+
+    def helper_MatchExpression(self, subject: DictRepr):
+        self.consume(LexerTokenType.LEFT_BRACE, 'match expression')
+        cases: list[DictRepr] = []
+        while self.isNextKeyword('case'):
+            self.advance()
+            pattern = self.MatchPattern()
+            guard: DictRepr | None = None
+            if self.isNextKeyword('if'):
+                self.advance()
+                guard = self.Expression()
+            self.consume(LexerTokenType.RIGHT_ARROW, 'match case')
+            if self.next.type == LexerTokenType.LEFT_BRACE:
+                block = self.BlockStatement()
+                cases.append({
+                    'pattern': pattern,
+                    'guard': guard,
+                    'block': block,
+                    'is_expression': False,
+                })
+            else:
+                value = self.Expression()
+                cases.append({
+                    'pattern': pattern,
+                    'guard': guard,
+                    'value': value,
+                    'is_expression': True,
+                })
+        self.consume(LexerTokenType.RIGHT_BRACE, 'match expression')
+        return doToken(ParserTokenType.MATCH_EXPRESSION, {
+            'subject': subject,
+            'cases': cases,
+        }).toDict()
 
     def helper_MatchStatement(self):
         subject = self.Expression()
@@ -1071,6 +1119,9 @@ class Parser:
                     "target": expr,
                     "property": self.Identifier(),
                 }).toDict()
+            elif self.next.type == LexerTokenType.KEYWORD and self.next.value == 'match':
+                self.advance('match expression')
+                expr = self.helper_MatchExpression(expr)
             else:
                 break
         return expr
