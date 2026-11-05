@@ -32,7 +32,7 @@ BUILTINS = [
 ]
 
 BUILTIN_TYPES = {
-    "some", "integer", "number", "boolean", "string", "array", "map",
+    "some", "int", "num", "boolean", "str", "arr", "map",
     "function", "file", "task",
 }
 
@@ -57,33 +57,33 @@ SEMANTIC_TOKEN_TYPES = [
 SEMANTIC_TYPE_INDEX = {name: index for index, name in enumerate(SEMANTIC_TOKEN_TYPES)}
 
 BUILTIN_DOCS: dict[str, tuple[str, str]] = {
-    "print": ("print(...) -> integer", "Writes each argument without adding a newline. Returns the argument count."),
-    "println": ("println(...) -> integer", "Writes each argument and then a newline."),
-    "format": ("format(template, ...) -> string", "Returns a formatted string with {0}, {1} and {n/separator} placeholders."),
-    "printf": ("printf(template, ...) -> integer", "Formats a string and prints it in one call."),
+    "print": ("print(...) -> int", "Writes each argument without adding a newline. Returns the argument count."),
+    "println": ("println(...) -> int", "Writes each argument and then a newline."),
+    "format": ("format(template, ...) -> str", "Returns a formatted string with {0}, {1} and {n/separator} placeholders."),
+    "printf": ("printf(template, ...) -> int", "Formats a string and prints it in one call."),
     "error": ("error(message, ...) -> error", "Raises a catchable error."),
     "fail": ("fail(kind, message, ...) -> error", "Creates an error value for error-union returns."),
-    "system": ("system(command, ...) -> integer", "Runs a system command."),
+    "system": ("system(command, ...) -> int", "Runs a system command."),
     "input": ("input(receptor?) -> receptor", "Reads one line of input into the receptor."),
     "inputf": ("inputf(receptor, prompt) -> receptor", "Prints the prompt and then reads one line into the receptor."),
-    "typeof": ("typeof(value) -> string", "Returns the runtime type name of a value."),
-    "size": ("size(...) -> integer", "Returns the total size of the given iterables."),
+    "typeof": ("typeof(value) -> str", "Returns the runtime type name of a value."),
+    "size": ("size(...) -> int", "Returns the total size of the given iterables."),
     "open": ("open(path, mode?) -> file", "Opens a file."),
     "write": ("write(file, text) -> some", "Writes text to a file."),
-    "read": ("read(file) -> string", "Reads a file."),
+    "read": ("read(file) -> str", "Reads a file."),
     "close": ("close(file) -> boolean", "Closes a file."),
     "wait": ("wait(task, timeout_ms?) -> some", "Waits for a task and returns its result."),
     "cancel": ("cancel(task) -> some", "Cancels a task."),
-    "task_status": ("task_status(task) -> string", "Returns the status of a task."),
+    "task_status": ("task_status(task) -> str", "Returns the status of a task."),
 }
 
 BUILTIN_TYPE_DOCS: dict[str, str] = {
     "some": "The gradual unknown type. It accepts any value.",
-    "integer": "A whole number.",
-    "number": "A floating-point number.",
+    "int": "A whole number.",
+    "num": "A floating-point number.",
     "boolean": "Either true or false.",
-    "string": "A sequence of characters.",
-    "array": "An ordered collection. Use array[element] for a typed array.",
+    "str": "A sequence of characters.",
+    "arr": "An ordered collection. Use arr[element] for a typed arr.",
     "map": "A key-value collection.",
     "function": "A callable value.",
     "file": "An open file stream.",
@@ -340,28 +340,28 @@ def _infer_expression_type(expr: str, by_name: dict[str, list[dict]]) -> str:
     if cast_match:
         return cast_match.group(1)
     if expr.startswith('$"') or expr.startswith('"'):
-        return "string"
+        return "str"
     if expr in {"true", "false"}:
         return "boolean"
     if expr == "nova":
         return "nova"
     if re.fullmatch(r"-?\d+", expr):
-        return "integer"
+        return "int"
     if re.fullmatch(r"-?\d+\.\d+(?:[eE][+-]?\d+)?", expr):
-        return "number"
+        return "num"
     if expr.startswith("["):
         if ">>" in expr:
             return "map"
         inner = expr[1:-1].strip()
         if not inner:
-            return "array"
+            return "arr"
         elements = _split_top_level(inner, ",")
         if len(elements) == 1:
             elements = _split_top_level(inner, " ")
         types = [_infer_expression_type(element, by_name) for element in elements if element.strip()]
         if types and all(element_type == types[0] for element_type in types):
-            return f"array[{types[0]}]"
-        return "array"
+            return f"arr[{types[0]}]"
+        return "arr"
     call_match = re.match(r"([A-Za-z_][A-Za-z0-9_]*)\s*\(", expr)
     if call_match:
         for symbol in by_name.get(call_match.group(1), []):
@@ -779,7 +779,7 @@ def handle_initialize(request_id, params) -> None:
             },
             "serverInfo": {
                 "name": "powang-lsp",
-                "version": "0.6.0",
+                "version": "0.7.0",
             },
         },
     })
@@ -869,7 +869,7 @@ def handle_completion(request_id, params) -> None:
         stripped_line.endswith(":")
         or stripped_line.endswith("@")
         or stripped_line.endswith("&")
-        or re.search(r"array\[\s*$", stripped_line) is not None
+        or re.search(r"arr\[\s*$", stripped_line) is not None
     )
     if type_context:
         for name, documentation in BUILTIN_TYPE_DOCS.items():

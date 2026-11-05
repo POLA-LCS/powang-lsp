@@ -88,7 +88,7 @@
       ]
     },
     "builtin-type": {
-      "match": "\\b(some|integer|number|boolean|string|array|map|function|file|task)\\b",
+      "match": "\\b(some|int|num|boolean|str|arr|map|function|file|task)\\b",
       "name": "support.type.primitive.powang"
     },
     "builtin": {

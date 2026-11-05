@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.0
+
+### Changed
+- Builtin types renamed to `int`, `num`, `str` and `arr`.
+- Hover, completion and semantic tokens now use the new type names.
+
 ## 0.6.0
 
 ### Added
