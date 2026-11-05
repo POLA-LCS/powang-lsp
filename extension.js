@@ -38,15 +38,29 @@ function handleMessage(message) {
 }
 
 function startServer(context) {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const config = vscode.workspace.getConfiguration('powang.server');
     const pythonPath = config.get('pythonPath', 'python');
     const extraArgs = config.get('extraArgs', []);
+    const repositoryPath = config.get('repositoryPath', '');
 
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const serverScript = path.join(context.extensionPath, 'tools', 'powang_lsp.py');
+    let cwd = workspaceFolder || undefined;
+    let lspArgs = ['-m', 'tools.powang_lsp', ...extraArgs];
 
-    serverProcess = spawn(pythonPath, [serverScript, ...extraArgs], {
-        cwd: workspaceFolder || undefined,
+    if (repositoryPath) {
+        cwd = repositoryPath;
+    } else if (workspaceFolder) {
+        const path = require('path');
+        const fs = require('fs');
+        const repoScript = path.join(workspaceFolder, 'tools', 'powang_lsp.py');
+        if (fs.existsSync(repoScript)) {
+            // Run from the repository root so src/ is importable.
+            cwd = workspaceFolder;
+        }
+    }
+
+    serverProcess = spawn(pythonPath, lspArgs, {
+        cwd: cwd,
         stdio: ['pipe', 'pipe', 'pipe'],
     });
 

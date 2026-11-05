@@ -1,6 +1,6 @@
 {
-  "name": "powang",
-  "displayName": "Powang",
+  "name": "powang-lsp",
+  "displayName": "Powang LSP",
   "description": "Syntax highlighting, diagnostics and completion for the Powang language",
   "version": "0.2.0",
   "publisher": "POLA-LCS",
@@ -58,6 +58,11 @@
           "type": "array",
           "default": [],
           "description": "Extra arguments passed to the powang LSP server."
+        },
+        "powang.server.repositoryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the powang repository root. The LSP server is launched from this directory so it can import src/."
         }
       }
     }

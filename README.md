@@ -1,4 +1,4 @@
-# Powang Language Support for VS Code
+# Powang LSP
 
 Syntax highlighting, diagnostics and completion for the [Powang](https://github.com/POLA-LCS/powang) programming language.
 
@@ -20,15 +20,15 @@ Syntax highlighting, diagnostics and completion for the [Powang](https://github.
 
 ### From a `.vsix` file
 
-1. Download the `.vsix` file from the [releases page](https://github.com/POLA-LCS/powang-vscode/releases).
+1. Download the `.vsix` file from the [releases page](https://github.com/POLA-LCS/powang-lsp/releases).
 2. Open VS Code.
 3. Press `Ctrl+Shift+P`, run `Extensions: Install from VSIX...`, and select the file.
 
 ### From source (development)
 
 ```bash
-git clone https://github.com/POLA-LCS/powang-vscode
-cd powang-vscode
+git clone https://github.com/POLA-LCS/powang-lsp
+cd powang-lsp
 code --extensionDevelopmentPath=.
 ```
 
@@ -65,5 +65,5 @@ It does not yet provide hover, rename or goto-definition.
 ## Links
 
 - [Powang language repository](https://github.com/POLA-LCS/powang)
-- [Issue tracker](https://github.com/POLA-LCS/powang-vscode/issues)
+- [Issue tracker](https://github.com/POLA-LCS/powang-lsp/issues)
 - [Changelog](CHANGELOG.md)
