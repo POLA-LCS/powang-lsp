@@ -14,7 +14,14 @@ import sys
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
-ROOT = Path(os.environ.get("POWANG_REPO", Path.cwd())).resolve()
+ROOT = Path(os.environ.get("POWANG_REPO", "")).resolve() if os.environ.get("POWANG_REPO") else None
+if ROOT is None or not (ROOT / "src" / "parser.py").exists():
+    # Fall back to the extension's own bundled src/.
+    bundled = Path(__file__).resolve().parents[1] / "src"
+    if bundled.exists():
+        ROOT = bundled.parent
+    else:
+        ROOT = Path.cwd()
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -24,6 +31,7 @@ from src.typecheck import check_source  # noqa: E402
 KEYWORDS = [
     "if", "else", "for", "fun", "return", "use", "type", "extern",
     "try", "catch", "finally", "spawn", "export", "match", "case", "const", "as",
+    "enum",
 ]
 
 BUILTINS = [
