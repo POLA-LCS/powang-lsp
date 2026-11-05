@@ -1,8 +1,8 @@
 .vscode/**
-.github/**
 .gitignore
 .gitattributes
 *.vsix
 node_modules/**
-**/__pycache__/**
-**/*.pyc
+src/__pycache__/**
+tools/__pycache__/**
+*.pyc
