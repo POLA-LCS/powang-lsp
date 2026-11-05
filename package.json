@@ -2,7 +2,7 @@
   "name": "powang-lsp",
   "displayName": "Powang LSP",
   "description": "Language support for the Powang programming language",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "publisher": "POLA-LCS",
   "license": "MIT",
   "icon": "icon.png",

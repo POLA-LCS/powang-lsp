@@ -9,11 +9,15 @@ Syntax highlighting, diagnostics and completion for the [Powang](https://github.
 - **Distinct colors** for builtins, builtin types, user types, module names, functions,
   methods, parameters, properties, macros, constants, variables and keywords
 - **Diagnostics** from the parser and gradual type checker, including typed array element checks
-- **Keyword and builtin completion**
-- **Hover** for keywords, builtins, and identifiers
-- **Go to definition and declaration**
-- **Document and workspace symbols**
-- **Find references and rename**
+- **Context-aware completion** for keywords, builtins, types, functions, variables, modules,
+  type members and snippets, with documentation for every item
+- **Rich hover** with builtin documentation, declaration comments, signatures and variable types
+- **Signature help** for functions, methods, module members and builtins
+- **Go to definition, declaration and type definition**
+- **Document and workspace symbols** with type members and hierarchy
+- **Find references, document highlights and rename** with prepare support
+- **Inlay hints** for inferred variable types
+- **Folding ranges** for blocks and comments
 - **Formatting**
 - **Language configuration**: brackets, comments, indentation rules, auto-closing pairs
 

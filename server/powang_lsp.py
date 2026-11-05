@@ -23,7 +23,7 @@ from src.typecheck import check_source  # noqa: E402
 
 KEYWORDS = [
     "if", "else", "for", "fun", "return", "use", "type", "extern",
-    "try", "catch", "finally", "spawn", "export", "match", "case", "const",
+    "try", "catch", "finally", "spawn", "export", "match", "case", "const", "as",
 ]
 
 BUILTINS = [
@@ -56,7 +56,70 @@ SEMANTIC_TOKEN_TYPES = [
 ]
 SEMANTIC_TYPE_INDEX = {name: index for index, name in enumerate(SEMANTIC_TOKEN_TYPES)}
 
+BUILTIN_DOCS: dict[str, tuple[str, str]] = {
+    "print": ("print(...) -> integer", "Writes each argument without adding a newline. Returns the argument count."),
+    "println": ("println(...) -> integer", "Writes each argument and then a newline."),
+    "format": ("format(template, ...) -> string", "Returns a formatted string with {0}, {1} and {n/separator} placeholders."),
+    "printf": ("printf(template, ...) -> integer", "Formats a string and prints it in one call."),
+    "error": ("error(message, ...) -> error", "Raises a catchable error."),
+    "fail": ("fail(kind, message, ...) -> error", "Creates an error value for error-union returns."),
+    "system": ("system(command, ...) -> integer", "Runs a system command."),
+    "input": ("input(receptor?) -> receptor", "Reads one line of input into the receptor."),
+    "inputf": ("inputf(receptor, prompt) -> receptor", "Prints the prompt and then reads one line into the receptor."),
+    "typeof": ("typeof(value) -> string", "Returns the runtime type name of a value."),
+    "size": ("size(...) -> integer", "Returns the total size of the given iterables."),
+    "open": ("open(path, mode?) -> file", "Opens a file."),
+    "write": ("write(file, text) -> some", "Writes text to a file."),
+    "read": ("read(file) -> string", "Reads a file."),
+    "close": ("close(file) -> boolean", "Closes a file."),
+    "wait": ("wait(task, timeout_ms?) -> some", "Waits for a task and returns its result."),
+    "cancel": ("cancel(task) -> some", "Cancels a task."),
+    "task_status": ("task_status(task) -> string", "Returns the status of a task."),
+}
+
+BUILTIN_TYPE_DOCS: dict[str, str] = {
+    "some": "The gradual unknown type. It accepts any value.",
+    "integer": "A whole number.",
+    "number": "A floating-point number.",
+    "boolean": "Either true or false.",
+    "string": "A sequence of characters.",
+    "array": "An ordered collection. Use array[element] for a typed array.",
+    "map": "A key-value collection.",
+    "function": "A callable value.",
+    "file": "An open file stream.",
+    "task": "A handle to a spawned task.",
+    "error": "A structured error value.",
+}
+
+KEYWORD_DOCS: dict[str, str] = {
+    "if": "Runs a block when the condition is truthy.",
+    "else": "Runs the alternative branch of an if statement.",
+    "for": "Repeats a block. Supports ranges and for-each loops.",
+    "fun": "Declares a function.",
+    "return": "Returns a value from the current function.",
+    "use": "Imports a module.",
+    "type": "Declares a user type or a type alias.",
+    "extern": "Declares an external function or type.",
+    "try": "Starts a try block.",
+    "catch": "Catches an error from a try block.",
+    "finally": "Runs a block after try and catch.",
+    "spawn": "Starts a task.",
+    "export": "Exports a declaration from a module.",
+    "match": "Matches a value against a list of cases.",
+    "case": "Declares one match case.",
+    "const": "Declares a compile-time macro.",
+    "as": "Casts a value to a type or introduces a module alias.",
+    "this": "The current instance inside a method.",
+}
+
+CONSTANT_DOCS: dict[str, str] = {
+    "true": "The boolean true value.",
+    "false": "The boolean false value.",
+    "nova": "The absence of a value. It is falsey in conditions.",
+}
+
 DOCUMENTS: dict[str, str] = {}
+WORKSPACE_ROOT: str | None = None
 
 
 def send(message: dict) -> None:
@@ -156,10 +219,451 @@ def _lines(text: str) -> list[str]:
     return text.split("\n")
 
 
-def word_at(text: str, line: int, character: int) -> str:
+def _strip_semicolon(value: str) -> str:
+    return value.strip().rstrip(";").strip()
+
+
+def _split_top_level(text: str, separator: str) -> list[str]:
+    parts: list[str] = []
+    current: list[str] = []
+    depth = 0
+    in_string = False
+    escape = False
+    for char in text:
+        if in_string:
+            current.append(char)
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+            current.append(char)
+            continue
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+        if char == separator and depth == 0:
+            parts.append("".join(current).strip())
+            current = []
+            continue
+        current.append(char)
+    if current:
+        parts.append("".join(current).strip())
+    return [part for part in parts if part]
+
+
+def _parse_parameters(params_text: str) -> list[tuple[str, str]]:
+    result: list[tuple[str, str]] = []
+    for part in _split_top_level(params_text, ","):
+        part = part.strip()
+        if not part:
+            continue
+        if ":" in part:
+            name, rest = part.split(":", 1)
+            name = name.strip()
+            type_text = rest.split("=", 1)[0].strip()
+        else:
+            name = part.split("=", 1)[0].strip()
+            type_text = "some"
+        if name:
+            result.append((name, type_text))
+    return result
+
+
+def _parse_function_signature(line: str) -> dict | None:
+    fun_match = re.search(r"\bfun\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", line)
+    if not fun_match:
+        return None
+    name = fun_match.group(1)
+    name_col = fun_match.start(1)
+    name_end_col = fun_match.end(1)
+    open_index = line.rfind("(", 0, fun_match.end(0))
+    if open_index < 0:
+        return None
+    depth = 0
+    close_index = -1
+    in_string = False
+    escape = False
+    for index in range(open_index, len(line)):
+        char = line[index]
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                close_index = index
+                break
+    if close_index < 0:
+        return None
+    params_text = line[open_index + 1:close_index]
+    after = line[close_index + 1:]
+    return_type = "nova"
+    return_match = re.match(r"\s*:\s*([^\s{>]+)", after)
+    if return_match:
+        return_type = return_match.group(1).strip()
+    signature = line.strip()
+    if ">>" in signature:
+        signature = signature.split(">>", 1)[0].strip()
+    if "{" in signature:
+        signature = signature.split("{", 1)[0].strip()
+    signature = signature.rstrip(";").strip().lstrip("+- ").strip()
+    return {
+        "name": name,
+        "name_col": name_col,
+        "name_end_col": name_end_col,
+        "parameters": _parse_parameters(params_text),
+        "return_type": return_type,
+        "signature": signature,
+    }
+
+
+def _infer_expression_type(expr: str, by_name: dict[str, list[dict]]) -> str:
+    expr = _strip_semicolon(expr)
+    if not expr:
+        return "some"
+    cast_match = re.search(r"\bas\s+([A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]+\])?)\s*$", expr)
+    if cast_match:
+        return cast_match.group(1)
+    if expr.startswith('$"') or expr.startswith('"'):
+        return "string"
+    if expr in {"true", "false"}:
+        return "boolean"
+    if expr == "nova":
+        return "nova"
+    if re.fullmatch(r"-?\d+", expr):
+        return "integer"
+    if re.fullmatch(r"-?\d+\.\d+(?:[eE][+-]?\d+)?", expr):
+        return "number"
+    if expr.startswith("["):
+        if ">>" in expr:
+            return "map"
+        inner = expr[1:-1].strip()
+        if not inner:
+            return "array"
+        elements = _split_top_level(inner, ",")
+        if len(elements) == 1:
+            elements = _split_top_level(inner, " ")
+        types = [_infer_expression_type(element, by_name) for element in elements if element.strip()]
+        if types and all(element_type == types[0] for element_type in types):
+            return f"array[{types[0]}]"
+        return "array"
+    call_match = re.match(r"([A-Za-z_][A-Za-z0-9_]*)\s*\(", expr)
+    if call_match:
+        for symbol in by_name.get(call_match.group(1), []):
+            if symbol["kind"] in {"function", "method"} and symbol.get("type"):
+                return symbol["type"]
+        return "some"
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", expr):
+        for symbol in by_name.get(expr, []):
+            if symbol["kind"] in {"variable", "parameter", "const"}:
+                return symbol["type"]
+    return "some"
+
+
+def _collect_doc_comment(lines: list[str], index: int) -> str:
+    parts: list[str] = []
+    cursor = index - 1
+    while cursor >= 0:
+        stripped = lines[cursor].strip()
+        if stripped.startswith("##"):
+            parts.append(stripped[2:].strip())
+            cursor -= 1
+            continue
+        if stripped.endswith("!#"):
+            block: list[str] = []
+            while cursor >= 0:
+                block.append(lines[cursor].strip())
+                if lines[cursor].strip().startswith("#!"):
+                    break
+                cursor -= 1
+            text = "\n".join(reversed(block))
+            text = text.replace("#!", "", 1)
+            if text.endswith("!#"):
+                text = text[:-2]
+            parts.append(text.strip())
+            cursor -= 1
+            continue
+        break
+    return "\n".join(reversed(parts)).strip()
+
+
+def build_document_index(text: str, path: str | None = None) -> dict:
+    lines = _lines(text)
+    symbols: list[dict] = []
+    by_name: dict[str, list[dict]] = {}
+    modules: dict[str, str | None] = {}
+    properties: dict[tuple[str, str], dict] = {}
+    current_type: str | None = None
+    line_index = 0
+
+    def add_symbol(symbol: dict, documentation: str = "") -> None:
+        symbol["documentation"] = documentation
+        symbols.append(symbol)
+        by_name.setdefault(symbol["name"], []).append(symbol)
+        if symbol.get("container"):
+            properties[(symbol["container"], symbol["name"])] = symbol
+
+    while line_index < len(lines):
+        line = lines[line_index]
+        stripped = line.strip()
+        if not stripped:
+            line_index += 1
+            continue
+        if stripped.startswith("##"):
+            line_index += 1
+            continue
+        if stripped.startswith("#!"):
+            while line_index < len(lines) and "!#" not in lines[line_index]:
+                line_index += 1
+            line_index += 1
+            continue
+
+        doc = _collect_doc_comment(lines, line_index)
+
+        type_match = re.match(r"^\s*(?:export\s+)?type\s+([A-Za-z_][A-Za-z0-9_]*)\s*(.*)$", line)
+        if type_match:
+            name = type_match.group(1)
+            rest = type_match.group(2).strip()
+            type_name = name
+            if rest.startswith(">>"):
+                type_name = _strip_semicolon(rest[2:])
+            add_symbol({
+                "name": name,
+                "kind": "type",
+                "line": line_index,
+                "col": type_match.start(1),
+                "end_col": type_match.end(1),
+                "type": type_name,
+                "signature": stripped,
+                "decl_text": stripped,
+            }, doc)
+            if "{" in rest:
+                current_type = name
+            line_index += 1
+            continue
+
+        if current_type and stripped.startswith("}"):
+            current_type = None
+            line_index += 1
+            continue
+
+        if current_type:
+            if re.match(r"^\s*[+-]\s*fun\s+", line):
+                parsed = _parse_function_signature(line)
+                if parsed:
+                    add_symbol({
+                        "name": parsed["name"],
+                        "kind": "method",
+                        "line": line_index,
+                        "col": parsed["name_col"],
+                        "end_col": parsed["name_end_col"],
+                        "type": parsed["return_type"],
+                        "signature": parsed["signature"],
+                        "container": current_type,
+                    }, doc)
+                    for parameter_name, parameter_type in parsed["parameters"]:
+                        add_symbol({
+                            "name": parameter_name,
+                            "kind": "parameter",
+                            "line": line_index,
+                            "col": parsed["name_col"],
+                            "end_col": parsed["name_end_col"],
+                            "type": parameter_type,
+                            "container": parsed["name"],
+                        })
+                line_index += 1
+                continue
+            property_match = re.match(r"^\s*[+-]\s*([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([^;]+?)\s*;?\s*$", line)
+            if property_match:
+                add_symbol({
+                    "name": property_match.group(1),
+                    "kind": "property",
+                    "line": line_index,
+                    "col": property_match.start(1),
+                    "end_col": property_match.end(1),
+                    "type": _strip_semicolon(property_match.group(2)),
+                    "container": current_type,
+                }, doc)
+                line_index += 1
+                continue
+
+        if re.match(r"^\s*(?:export\s+)?(?:extern\s+)?fun\b", line):
+            parsed = _parse_function_signature(line)
+            if parsed:
+                add_symbol({
+                    "name": parsed["name"],
+                    "kind": "function",
+                    "line": line_index,
+                    "col": parsed["name_col"],
+                    "end_col": parsed["name_end_col"],
+                    "type": parsed["return_type"],
+                    "signature": parsed["signature"],
+                }, doc)
+                for parameter_name, parameter_type in parsed["parameters"]:
+                    add_symbol({
+                        "name": parameter_name,
+                        "kind": "parameter",
+                        "line": line_index,
+                        "col": parsed["name_col"],
+                        "end_col": parsed["name_end_col"],
+                        "type": parameter_type,
+                        "container": parsed["name"],
+                    })
+            line_index += 1
+            continue
+
+        const_match = re.match(r"^\s*const\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*([^=]+?))?\s*=\s*(.+?)\s*;?\s*$", line)
+        if const_match:
+            name = const_match.group(1)
+            type_text = _strip_semicolon(const_match.group(2) or "")
+            value = _strip_semicolon(const_match.group(3))
+            if not type_text:
+                type_text = _infer_expression_type(value, by_name)
+            add_symbol({
+                "name": name,
+                "kind": "const",
+                "line": line_index,
+                "col": const_match.start(1),
+                "end_col": const_match.end(1),
+                "type": type_text,
+                "value": value,
+                "decl_text": stripped,
+            }, doc)
+            line_index += 1
+            continue
+
+        use_match = re.match(r"^\s*use\s+(?:\"([^\"]+)\"|([A-Za-z_][A-Za-z0-9_]*))(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*|\*))?", line)
+        if use_match:
+            path_spec = use_match.group(1)
+            module_name = use_match.group(2)
+            alias = use_match.group(3) or module_name or (Path(path_spec).stem if path_spec else "")
+            if alias != "*":
+                start = use_match.start(1) if use_match.start(1) >= 0 else use_match.start(2)
+                end = use_match.end(1) if use_match.end(1) >= 0 else use_match.end(2)
+                add_symbol({
+                    "name": alias,
+                    "kind": "module",
+                    "line": line_index,
+                    "col": start,
+                    "end_col": end,
+                    "type": "module",
+                    "path": path_spec,
+                    "module": module_name,
+                    "decl_text": stripped,
+                }, doc)
+                modules[alias] = path_spec
+            line_index += 1
+            continue
+
+        var_match = re.match(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*([^=;]+?))?\s*(?::=|=)\s*(.+?)\s*;?\s*$", line)
+        if var_match:
+            name = var_match.group(1)
+            if name not in KEYWORDS:
+                type_text = _strip_semicolon(var_match.group(2) or "")
+                value = _strip_semicolon(var_match.group(3))
+                annotated = bool(type_text)
+                if not type_text:
+                    type_text = _infer_expression_type(value, by_name)
+                add_symbol({
+                    "name": name,
+                    "kind": "variable",
+                    "line": line_index,
+                    "col": var_match.start(1),
+                    "end_col": var_match.end(1),
+                    "type": type_text,
+                    "value": value,
+                    "annotated": annotated,
+                    "decl_text": stripped,
+                }, doc)
+                line_index += 1
+                continue
+
+        var_decl_match = re.match(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([^=;]+?)\s*;?\s*$", line)
+        if var_decl_match:
+            name = var_decl_match.group(1)
+            if name not in KEYWORDS:
+                add_symbol({
+                    "name": name,
+                    "kind": "variable",
+                    "line": line_index,
+                    "col": var_decl_match.start(1),
+                    "end_col": var_decl_match.end(1),
+                    "type": _strip_semicolon(var_decl_match.group(2)),
+                    "annotated": True,
+                    "decl_text": stripped,
+                }, doc)
+                line_index += 1
+                continue
+
+        line_index += 1
+
+    return {
+        "symbols": symbols,
+        "by_name": by_name,
+        "modules": modules,
+        "properties": properties,
+        "lines": lines,
+        "path": path,
+    }
+
+
+def _symbol_markdown(symbol: dict) -> str:
+    kind = symbol["kind"]
+    name = symbol["name"]
+    documentation = symbol.get("documentation", "").strip()
+    if kind == "function":
+        body = f"**function** `{symbol.get('signature', name)}`"
+    elif kind == "method":
+        body = f"**method** `{symbol.get('signature', name)}`"
+    elif kind == "type":
+        if symbol.get("type") and symbol.get("type") != name:
+            body = f"**type** `{name} = {symbol['type']}`"
+        else:
+            body = f"**type** `{name}`"
+    elif kind == "const":
+        body = f"**const** `{symbol.get('decl_text', name)}`"
+    elif kind == "module":
+        body = f"**module** `{symbol.get('decl_text', name)}`"
+    elif kind == "parameter":
+        body = f"**parameter** `{name}: {symbol.get('type', 'some')}`"
+    elif kind == "property":
+        body = f"**property** `{name}: {symbol.get('type', 'some')}`"
+    else:
+        body = f"**variable** `{name}: {symbol.get('type', 'some')}`"
+    if documentation:
+        body += f"\n\n{documentation}"
+    return body
+
+
+def _symbol_hover_result(symbol: dict, line: int, start: int, end: int) -> dict:
+    return {
+        "contents": {"kind": "markdown", "value": _symbol_markdown(symbol)},
+        "range": {
+            "start": {"line": line, "character": start},
+            "end": {"line": line, "character": end},
+        },
+    }
+
+
+def _word_position(text: str, line: int, character: int) -> tuple[str, int, int]:
     lines = _lines(text)
     if line < 0 or line >= len(lines):
-        return ""
+        return "", 0, 0
     current = lines[line]
     character = max(0, min(character, len(current)))
     start = character
@@ -168,46 +672,77 @@ def word_at(text: str, line: int, character: int) -> str:
     end = character
     while end < len(current) and (current[end].isalnum() or current[end] == "_"):
         end += 1
-    return current[start:end]
+    return current[start:end], start, end
 
 
-def range_of_word(text: str, line: int, word: str) -> dict:
+def _object_name_before_dot(line: str, dot_index: int) -> str:
+    index = dot_index - 1
+    while index >= 0 and line[index].isspace():
+        index -= 1
+    end = index + 1
+    while index >= 0 and (line[index].isalnum() or line[index] == "_"):
+        index -= 1
+    return line[index + 1:end]
+
+
+def _module_index_for(module_symbol: dict, current_path: str | None) -> dict | None:
+    path_spec = module_symbol.get("path")
+    module_name = module_symbol.get("module")
+    candidate: Path | None = None
+    if path_spec:
+        candidate = Path(path_spec)
+        if not candidate.is_absolute() and current_path:
+            candidate = Path(current_path).parent / candidate
+    elif module_name:
+        candidate = ROOT / "modules" / module_name / "use.po"
+    if candidate is None or not candidate.exists():
+        return None
+    try:
+        text = candidate.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    index = build_document_index(text, str(candidate))
+    index["uri"] = candidate.resolve().as_uri()
+    return index
+
+
+def _resolve_symbol(text: str, word: str, line: int, character: int, path: str | None) -> tuple[dict | None, dict]:
+    index = build_document_index(text, path)
     lines = _lines(text)
-    if line >= len(lines):
-        return {"start": {"line": line, "character": 0}, "end": {"line": line, "character": len(word)}}
-    current = lines[line]
-    idx = current.find(word)
-    if idx < 0:
-        idx = 0
-    return {"start": {"line": line, "character": idx}, "end": {"line": line, "character": idx + len(word)}}
+    current = lines[line] if 0 <= line < len(lines) else ""
+    before = current[:character]
+    stripped_before = before.rstrip()
+    if stripped_before.endswith("."):
+        dot_index = len(stripped_before) - 1
+        object_name = _object_name_before_dot(current, dot_index)
+        object_symbols = index["by_name"].get(object_name, [])
+        object_symbol = object_symbols[0] if object_symbols else None
+        if object_symbol and object_symbol["kind"] == "module":
+            module_index = _module_index_for(object_symbol, path)
+            if module_index:
+                members = module_index["by_name"].get(word, [])
+                if members:
+                    return members[0], module_index
+        elif object_symbol:
+            property_symbol = index["properties"].get((object_symbol.get("type", ""), word))
+            if property_symbol:
+                return property_symbol, index
+        return None, index
+    symbols = index["by_name"].get(word, [])
+    if symbols:
+        return symbols[0], index
+    return None, index
 
 
-DECL_RE = re.compile(r"^\s*(?:export\s+)?(?:fun|type)\s+([A-Za-z_][A-Za-z0-9_]*)")
-VAR_RE = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?::=|:)")
-
-
-def find_definitions(text: str, name: str) -> list[dict]:
-    results = []
-    for i, line in enumerate(_lines(text)):
-        m = DECL_RE.match(line)
-        if m and m.group(1) == name:
-            results.append({"line": i, "name": name})
-            continue
-        m = VAR_RE.match(line)
-        if m and m.group(1) == name:
-            results.append({"line": i, "name": name})
-    return results
-
-
-def find_references(text: str, name: str) -> list[tuple[int, int]]:
-    results = []
-    for i, line in enumerate(_lines(text)):
-        for m in re.finditer(r"\b" + re.escape(name) + r"\b", line):
-            results.append((i, m.start()))
-    return results
-
-
-def handle_initialize(request_id) -> None:
+def handle_initialize(request_id, params) -> None:
+    global WORKSPACE_ROOT
+    root_uri = params.get("rootUri")
+    if not root_uri:
+        folders = params.get("workspaceFolders") or []
+        if folders:
+            root_uri = folders[0].get("uri")
+    if root_uri:
+        WORKSPACE_ROOT = _source_path(root_uri)
     send({
         "jsonrpc": "2.0",
         "id": request_id,
@@ -215,16 +750,25 @@ def handle_initialize(request_id) -> None:
             "capabilities": {
                 "textDocumentSync": 1,
                 "completionProvider": {
-                    "triggerCharacters": [".", ":"],
+                    "triggerCharacters": [".", ":", "@", "&"],
                 },
                 "hoverProvider": True,
+                "signatureHelpProvider": {
+                    "triggerCharacters": ["(", ","],
+                },
                 "definitionProvider": True,
                 "declarationProvider": True,
+                "typeDefinitionProvider": True,
+                "documentHighlightProvider": True,
                 "documentSymbolProvider": True,
                 "workspaceSymbolProvider": True,
                 "referencesProvider": True,
-                "renameProvider": True,
+                "renameProvider": {
+                    "prepareProvider": True,
+                },
                 "documentFormattingProvider": True,
+                "inlayHintProvider": True,
+                "foldingRangeProvider": True,
                 "semanticTokensProvider": {
                     "legend": {
                         "tokenTypes": SEMANTIC_TOKEN_TYPES,
@@ -235,25 +779,148 @@ def handle_initialize(request_id) -> None:
             },
             "serverInfo": {
                 "name": "powang-lsp",
-                "version": "0.5.0",
+                "version": "0.6.0",
             },
         },
     })
 
 
+def _completion_kind(kind: str) -> int:
+    return {
+        "function": 3,
+        "method": 2,
+        "type": 7,
+        "const": 21,
+        "variable": 6,
+        "parameter": 6,
+        "module": 9,
+        "property": 10,
+    }.get(kind, 6)
+
+
 def handle_completion(request_id, params) -> None:
-    items = [
-        {"label": name, "kind": 14, "detail": "keyword"}
-        for name in KEYWORDS
-    ] + [
-        {"label": name, "kind": 3, "detail": "builtin"}
-        for name in BUILTINS
-    ]
-    send({
-        "jsonrpc": "2.0",
-        "id": request_id,
-        "result": items,
-    })
+    text_doc = params.get("textDocument", {})
+    uri = text_doc.get("uri")
+    text = DOCUMENTS.get(uri, "")
+    pos = params.get("position", {})
+    line = pos.get("line", 0)
+    character = pos.get("character", 0)
+    path = _source_path(uri)
+    index = build_document_index(text, path)
+    lines = _lines(text)
+    current = lines[line] if 0 <= line < len(lines) else ""
+    before = current[:character]
+    stripped_before = before.rstrip()
+    items: list[dict] = []
+    seen: set[str] = set()
+
+    def add(label: str, kind: int, detail: str = "", documentation: str = "",
+            insert_text: str | None = None, sort_text: str | None = None,
+            insert_text_format: int | None = None) -> None:
+        if label in seen:
+            return
+        seen.add(label)
+        item: dict = {"label": label, "kind": kind}
+        if detail:
+            item["detail"] = detail
+        if documentation:
+            item["documentation"] = {"kind": "markdown", "value": documentation}
+        if insert_text is not None:
+            item["insertText"] = insert_text
+        if insert_text_format is not None:
+            item["insertTextFormat"] = insert_text_format
+        if sort_text is not None:
+            item["sortText"] = sort_text
+        items.append(item)
+
+    if stripped_before.endswith("."):
+        dot_index = len(stripped_before) - 1
+        object_name = _object_name_before_dot(current, dot_index)
+        object_symbols = index["by_name"].get(object_name, [])
+        object_symbol = object_symbols[0] if object_symbols else None
+        if object_symbol and object_symbol["kind"] == "module":
+            module_index = _module_index_for(object_symbol, path)
+            if module_index:
+                for symbol in module_index["symbols"]:
+                    if symbol["kind"] in {"function", "type", "const", "module"}:
+                        add(
+                            symbol["name"],
+                            _completion_kind(symbol["kind"]),
+                            symbol.get("signature", symbol.get("type", "")),
+                            _symbol_markdown(symbol),
+                            sort_text="0",
+                        )
+        elif object_symbol:
+            object_type = object_symbol.get("type", "")
+            for (container, prop_name), symbol in index["properties"].items():
+                if container == object_type:
+                    add(
+                        prop_name,
+                        _completion_kind(symbol["kind"]),
+                        symbol.get("type", ""),
+                        _symbol_markdown(symbol),
+                        sort_text="0",
+                    )
+        send({"jsonrpc": "2.0", "id": request_id, "result": items})
+        return
+
+    stripped_line = before.strip()
+    type_context = (
+        stripped_line.endswith(":")
+        or stripped_line.endswith("@")
+        or stripped_line.endswith("&")
+        or re.search(r"array\[\s*$", stripped_line) is not None
+    )
+    if type_context:
+        for name, documentation in BUILTIN_TYPE_DOCS.items():
+            add(name, 7, "builtin type", f"**builtin type** `{name}`\n\n{documentation}", sort_text="1")
+        for symbol in index["symbols"]:
+            if symbol["kind"] == "type":
+                add(symbol["name"], 7, symbol.get("type", "type"), _symbol_markdown(symbol), sort_text="0")
+        send({"jsonrpc": "2.0", "id": request_id, "result": items})
+        return
+
+    for symbol in index["symbols"]:
+        if symbol["kind"] in {"property", "parameter"} or symbol.get("container"):
+            continue
+        add(
+            symbol["name"],
+            _completion_kind(symbol["kind"]),
+            symbol.get("signature", symbol.get("type", "")),
+            _symbol_markdown(symbol),
+            sort_text="0",
+        )
+    for name, documentation in BUILTIN_TYPE_DOCS.items():
+        add(name, 7, "builtin type", f"**builtin type** `{name}`\n\n{documentation}", sort_text="2")
+    for name, (signature, documentation) in BUILTIN_DOCS.items():
+        add(
+            name,
+            3,
+            signature,
+            f"**builtin function** `{signature}`\n\n{documentation}",
+            insert_text=f"{name}($1)",
+            sort_text="3",
+            insert_text_format=2,
+        )
+    for name in KEYWORDS:
+        add(name, 14, "keyword", f"**keyword** `{name}`\n\n{KEYWORD_DOCS.get(name, '')}", sort_text="4")
+    for label, snippet, detail in (
+        ("fun", "fun ${1:name}(${2})${3: : ${4:type}} {\n\t$0\n}", "function declaration"),
+        ("type", "type ${1:Name} {\n\t$0\n}", "type declaration"),
+        ("match", "match ${1:value} {\n\tcase ${2:_} >> $0;\n}", "match statement"),
+        ("for", "for ${1:item} >> ${2:items} {\n\t$0\n}", "for-each loop"),
+        ("if", "if ${1:condition} {\n\t$0\n}", "if statement"),
+        ("try", "try {\n\t$0\n} catch ${1:error} {\n\t\n}", "try statement"),
+    ):
+        items.append({
+            "label": label,
+            "kind": 15,
+            "detail": detail,
+            "insertText": snippet,
+            "insertTextFormat": 2,
+            "sortText": "5",
+        })
+    send({"jsonrpc": "2.0", "id": request_id, "result": items})
 
 
 def handle_hover(request_id, params) -> None:
@@ -261,23 +928,78 @@ def handle_hover(request_id, params) -> None:
     uri = text_doc.get("uri")
     text = DOCUMENTS.get(uri, "")
     pos = params.get("position", {})
-    word = word_at(text, pos.get("line", 0), pos.get("character", 0))
+    line = pos.get("line", 0)
+    character = pos.get("character", 0)
+    word, start, end = _word_position(text, line, character)
     if not word:
         send({"jsonrpc": "2.0", "id": request_id, "result": None})
         return
-    if word in KEYWORDS:
-        content = f"keyword: {word}"
-    elif word in BUILTINS:
-        content = f"builtin: {word}"
-    else:
-        content = f"identifier: {word}"
-    send({
-        "jsonrpc": "2.0",
-        "id": request_id,
-        "result": {
-            "contents": {"kind": "plaintext", "value": content},
-        },
-    })
+
+    path = _source_path(uri)
+    lines = _lines(text)
+    current = lines[line] if 0 <= line < len(lines) else ""
+    before = current[:start].rstrip()
+    hover_range = {
+        "start": {"line": line, "character": start},
+        "end": {"line": line, "character": end},
+    }
+
+    def respond(value: str) -> None:
+        send({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {
+                "contents": {"kind": "markdown", "value": value},
+                "range": hover_range,
+            },
+        })
+
+    if before.endswith("."):
+        dot_index = len(before) - 1
+        object_name = _object_name_before_dot(current, dot_index)
+        index = build_document_index(text, path)
+        object_symbols = index["by_name"].get(object_name, [])
+        object_symbol = object_symbols[0] if object_symbols else None
+        if object_symbol and object_symbol["kind"] == "module":
+            module_index = _module_index_for(object_symbol, path)
+            if module_index:
+                members = module_index["by_name"].get(word, [])
+                if members:
+                    respond(_symbol_markdown(members[0]))
+                    return
+        elif object_symbol:
+            property_symbol = index["properties"].get((object_symbol.get("type", ""), word))
+            if property_symbol:
+                respond(_symbol_markdown(property_symbol))
+                return
+        respond(f"**property** `{word}`")
+        return
+
+    if word == "error" and current[end:].lstrip().startswith("("):
+        signature, documentation = BUILTIN_DOCS["error"]
+        respond(f"**builtin function** `{signature}`\n\n{documentation}")
+        return
+    if word in BUILTIN_TYPE_DOCS:
+        respond(f"**builtin type** `{word}`\n\n{BUILTIN_TYPE_DOCS[word]}")
+        return
+    if word in BUILTIN_DOCS:
+        signature, documentation = BUILTIN_DOCS[word]
+        respond(f"**builtin function** `{signature}`\n\n{documentation}")
+        return
+    if word in CONSTANT_DOCS:
+        respond(f"**constant** `{word}`\n\n{CONSTANT_DOCS[word]}")
+        return
+    if word in KEYWORD_DOCS:
+        respond(f"**keyword** `{word}`\n\n{KEYWORD_DOCS[word]}")
+        return
+
+    index = build_document_index(text, path)
+    symbols = index["by_name"].get(word, [])
+    if symbols:
+        respond(_symbol_markdown(symbols[0]))
+        return
+
+    respond(f"**identifier** `{word}`\n\nNo type information available.")
 
 
 def _location(uri, line, character, length=1):
@@ -295,92 +1017,183 @@ def handle_definition(request_id, params) -> None:
     uri = text_doc.get("uri")
     text = DOCUMENTS.get(uri, "")
     pos = params.get("position", {})
-    word = word_at(text, pos.get("line", 0), pos.get("character", 0))
+    line = pos.get("line", 0)
+    character = pos.get("character", 0)
+    word, _, _ = _word_position(text, line, character)
     if not word:
         send({"jsonrpc": "2.0", "id": request_id, "result": None})
         return
-    defs = find_definitions(text, word)
-    if not defs:
-        send({"jsonrpc": "2.0", "id": request_id, "result": None})
-        return
-    d = defs[0]
-    rng = range_of_word(text, d["line"], word)
-    send({
-        "jsonrpc": "2.0",
-        "id": request_id,
-        "result": _location(uri, d["line"], rng["start"]["character"], len(word)),
-    })
+    symbol, index = _resolve_symbol(text, word, line, character, _source_path(uri))
+    locations = []
+    if symbol:
+        target_uri = index.get("uri") or uri
+        locations.append(_location(target_uri, symbol["line"], symbol["col"], max(1, symbol["end_col"] - symbol["col"])))
+    else:
+        current_index = build_document_index(text, _source_path(uri))
+        for candidate in current_index["by_name"].get(word, []):
+            locations.append(_location(uri, candidate["line"], candidate["col"], max(1, candidate["end_col"] - candidate["col"])))
+    send({"jsonrpc": "2.0", "id": request_id, "result": locations or None})
 
 
 def handle_declaration(request_id, params) -> None:
     handle_definition(request_id, params)
 
 
+def handle_type_definition(request_id, params) -> None:
+    text_doc = params.get("textDocument", {})
+    uri = text_doc.get("uri")
+    text = DOCUMENTS.get(uri, "")
+    pos = params.get("position", {})
+    line = pos.get("line", 0)
+    character = pos.get("character", 0)
+    word, _, _ = _word_position(text, line, character)
+    if not word:
+        send({"jsonrpc": "2.0", "id": request_id, "result": None})
+        return
+    symbol, index = _resolve_symbol(text, word, line, character, _source_path(uri))
+    if not symbol:
+        send({"jsonrpc": "2.0", "id": request_id, "result": None})
+        return
+    type_name = symbol.get("type", "")
+    # For variables, functions and parameters, resolve the type name.
+    type_word = None
+    if symbol["kind"] in {"variable", "parameter", "function", "method", "property"}:
+        type_word = type_name
+    elif symbol["kind"] == "type":
+        type_word = symbol["name"]
+    if not type_word:
+        send({"jsonrpc": "2.0", "id": request_id, "result": None})
+        return
+    identifiers = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", type_word)
+    target_symbol = None
+    target_index = index
+    for identifier in identifiers:
+        candidates = index["by_name"].get(identifier, [])
+        for candidate in candidates:
+            if candidate["kind"] == "type":
+                target_symbol = candidate
+                break
+        if target_symbol:
+            break
+    if not target_symbol:
+        send({"jsonrpc": "2.0", "id": request_id, "result": None})
+        return
+    target_uri = target_index.get("uri") or uri
+    send({
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "result": _location(target_uri, target_symbol["line"], target_symbol["col"], max(1, target_symbol["end_col"] - target_symbol["col"])),
+    })
+
+
+SYMBOL_KINDS = {
+    "function": 12,
+    "method": 6,
+    "type": 5,
+    "const": 14,
+    "variable": 13,
+    "parameter": 13,
+    "property": 7,
+    "module": 2,
+}
+
+
+def _document_symbol_node(symbol: dict, index: dict, children: list[dict] | None = None) -> dict:
+    lines = index["lines"]
+    line = symbol["line"]
+    line_text = lines[line] if 0 <= line < len(lines) else ""
+    node = {
+        "name": symbol["name"],
+        "detail": symbol.get("type", ""),
+        "kind": SYMBOL_KINDS.get(symbol["kind"], 13),
+        "range": {
+            "start": {"line": line, "character": 0},
+            "end": {"line": line, "character": len(line_text)},
+        },
+        "selectionRange": {
+            "start": {"line": line, "character": symbol["col"]},
+            "end": {"line": line, "character": symbol["end_col"]},
+        },
+    }
+    if children:
+        node["children"] = children
+    return node
+
+
 def handle_document_symbol(request_id, params) -> None:
     text_doc = params.get("textDocument", {})
     uri = text_doc.get("uri")
     text = DOCUMENTS.get(uri, "")
-    symbols = []
-    for i, line in enumerate(_lines(text)):
-        m = DECL_RE.match(line)
-        if m:
-            name = m.group(1)
-            kind = 5 if re.match(r"^\s*(?:export\s+)?type\b", line) else 12
-            symbols.append({
-                "name": name,
-                "kind": kind,
-                "range": {
-                    "start": {"line": i, "character": 0},
-                    "end": {"line": i, "character": len(line)},
-                },
-                "selectionRange": range_of_word(text, i, name),
-            })
+    index = build_document_index(text, _source_path(uri))
+    top_level: list[dict] = []
+    children_by_container: dict[str, list[dict]] = {}
+    for symbol in index["symbols"]:
+        container = symbol.get("container")
+        if container:
+            children_by_container.setdefault(container, []).append(symbol)
+    for symbol in index["symbols"]:
+        if symbol.get("container"):
             continue
-        m = VAR_RE.match(line)
-        if m:
-            name = m.group(1)
-            if name in KEYWORDS:
-                continue
-            symbols.append({
-                "name": name,
-                "kind": 13,
-                "range": {
-                    "start": {"line": i, "character": 0},
-                    "end": {"line": i, "character": len(line)},
-                },
-                "selectionRange": range_of_word(text, i, name),
-            })
-    send({"jsonrpc": "2.0", "id": request_id, "result": symbols})
+        children = [
+            _document_symbol_node(child, index)
+            for child in sorted(children_by_container.get(symbol["name"], []), key=lambda item: item["line"])
+            if child["kind"] != "parameter"
+        ]
+        top_level.append(_document_symbol_node(symbol, index, children))
+    top_level.sort(key=lambda item: item["range"]["start"]["line"])
+    send({"jsonrpc": "2.0", "id": request_id, "result": top_level})
+
+
+def _workspace_documents():
+    seen: set[str] = set()
+    for uri, text in DOCUMENTS.items():
+        seen.add(uri)
+        yield uri, text, _source_path(uri)
+    if WORKSPACE_ROOT:
+        root = Path(WORKSPACE_ROOT)
+        if root.exists():
+            for path in root.rglob("*.po"):
+                uri = path.resolve().as_uri()
+                if uri in seen:
+                    continue
+                seen.add(uri)
+                try:
+                    text = path.read_text(encoding="utf-8")
+                except OSError:
+                    continue
+                yield uri, text, str(path)
 
 
 def handle_workspace_symbol(request_id, params) -> None:
-    query = params.get("query", "")
-    results = []
-    for uri, text in DOCUMENTS.items():
-        for i, line in enumerate(_lines(text)):
-            m = DECL_RE.match(line)
-            if m:
-                name = m.group(1)
-                if query and query.lower() not in name.lower():
-                    continue
-                results.append({
-                    "name": name,
-                    "kind": 5 if re.match(r"^\s*(?:export\s+)?type\b", line) else 12,
-                    "location": _location(uri, i, 0, len(line)),
-                })
-            m = VAR_RE.match(line)
-            if m:
-                name = m.group(1)
-                if name in KEYWORDS:
-                    continue
-                if query and query.lower() not in name.lower():
-                    continue
-                results.append({
-                    "name": name,
-                    "kind": 13,
-                    "location": _location(uri, i, 0, len(line)),
-                })
+    query = (params.get("query") or "").lower()
+    results: list[dict] = []
+    for uri, text, path in _workspace_documents():
+        index = build_document_index(text, path)
+        for symbol in index["symbols"]:
+            if symbol["kind"] == "parameter":
+                continue
+            if query and query not in symbol["name"].lower():
+                continue
+            results.append({
+                "name": symbol["name"],
+                "kind": SYMBOL_KINDS.get(symbol["kind"], 13),
+                "containerName": symbol.get("container", ""),
+                "location": _location(uri, symbol["line"], symbol["col"], max(1, symbol["end_col"] - symbol["col"])),
+            })
+            if len(results) >= 200:
+                break
+        if len(results) >= 200:
+            break
     send({"jsonrpc": "2.0", "id": request_id, "result": results})
+
+
+def _identifier_occurrences(text: str, name: str) -> list[tuple[int, int, int]]:
+    tokens = _scan_semantic_tokens(text)
+    return [
+        (token["line"], token["col"], len(token["value"]))
+        for token in tokens
+        if token["kind"] == "identifier" and token["value"] == name
+    ]
 
 
 def handle_references(request_id, params) -> None:
@@ -388,15 +1201,41 @@ def handle_references(request_id, params) -> None:
     uri = text_doc.get("uri")
     text = DOCUMENTS.get(uri, "")
     pos = params.get("position", {})
-    word = word_at(text, pos.get("line", 0), pos.get("character", 0))
-    if not word:
+    line = pos.get("line", 0)
+    character = pos.get("character", 0)
+    word, _, _ = _word_position(text, line, character)
+    if not word or word in KEYWORDS or word in BUILTINS or word in BUILTIN_TYPES:
         send({"jsonrpc": "2.0", "id": request_id, "result": []})
         return
-    refs = find_references(text, word)
-    result = []
-    for (i, c) in refs:
-        result.append(_location(uri, i, c, len(word)))
-    send({"jsonrpc": "2.0", "id": request_id, "result": result})
+    results: list[dict] = []
+    for doc_uri, doc_text, _ in _workspace_documents():
+        for ref_line, ref_col, ref_length in _identifier_occurrences(doc_text, word):
+            results.append(_location(doc_uri, ref_line, ref_col, ref_length))
+    send({"jsonrpc": "2.0", "id": request_id, "result": results})
+
+
+def handle_prepare_rename(request_id, params) -> None:
+    text_doc = params.get("textDocument", {})
+    uri = text_doc.get("uri")
+    text = DOCUMENTS.get(uri, "")
+    pos = params.get("position", {})
+    line = pos.get("line", 0)
+    character = pos.get("character", 0)
+    word, start, end = _word_position(text, line, character)
+    if not word or word in KEYWORDS or word in BUILTINS or word in BUILTIN_TYPES:
+        send({"jsonrpc": "2.0", "id": request_id, "result": None})
+        return
+    send({
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "result": {
+            "range": {
+                "start": {"line": line, "character": start},
+                "end": {"line": line, "character": end},
+            },
+            "placeholder": word,
+        },
+    })
 
 
 def handle_rename(request_id, params) -> None:
@@ -404,27 +1243,58 @@ def handle_rename(request_id, params) -> None:
     uri = text_doc.get("uri")
     text = DOCUMENTS.get(uri, "")
     pos = params.get("position", {})
-    word = word_at(text, pos.get("line", 0), pos.get("character", 0))
+    line = pos.get("line", 0)
+    character = pos.get("character", 0)
+    word, _, _ = _word_position(text, line, character)
     new_name = params.get("newName", "")
-    if not word or not new_name:
+    if not word or not new_name or word in KEYWORDS or word in BUILTINS or word in BUILTIN_TYPES:
         send({"jsonrpc": "2.0", "id": request_id, "result": None})
         return
-    edits = []
-    for (i, c) in find_references(text, word):
-        edits.append({
-            "range": {
-                "start": {"line": i, "character": c},
-                "end": {"line": i, "character": c + len(word)},
-            },
-            "newText": new_name,
-        })
+    changes: dict[str, list[dict]] = {}
+    for doc_uri, doc_text, _ in _workspace_documents():
+        edits = []
+        for ref_line, ref_col, ref_length in _identifier_occurrences(doc_text, word):
+            edits.append({
+                "range": {
+                    "start": {"line": ref_line, "character": ref_col},
+                    "end": {"line": ref_line, "character": ref_col + ref_length},
+                },
+                "newText": new_name,
+            })
+        if edits:
+            changes[doc_uri] = edits
     send({
         "jsonrpc": "2.0",
         "id": request_id,
-        "result": {
-            "changes": {uri: edits},
-        },
+        "result": {"changes": changes} if changes else None,
     })
+
+
+def handle_document_highlight(request_id, params) -> None:
+    text_doc = params.get("textDocument", {})
+    uri = text_doc.get("uri")
+    text = DOCUMENTS.get(uri, "")
+    pos = params.get("position", {})
+    line = pos.get("line", 0)
+    character = pos.get("character", 0)
+    word, _, _ = _word_position(text, line, character)
+    if not word:
+        send({"jsonrpc": "2.0", "id": request_id, "result": []})
+        return
+    lines = _lines(text)
+    highlights = []
+    for ref_line, ref_col, ref_length in _identifier_occurrences(text, word):
+        line_text = lines[ref_line] if 0 <= ref_line < len(lines) else ""
+        after = line_text[ref_col + ref_length:]
+        kind = 3 if re.match(r"^\s*(?::=|[+\-*/]?=)", after) else 2
+        highlights.append({
+            "range": {
+                "start": {"line": ref_line, "character": ref_col},
+                "end": {"line": ref_line, "character": ref_col + ref_length},
+            },
+            "kind": kind,
+        })
+    send({"jsonrpc": "2.0", "id": request_id, "result": highlights})
 
 
 def handle_formatting(request_id, params) -> None:
@@ -453,6 +1323,227 @@ def handle_formatting(request_id, params) -> None:
             "newText": new_text,
         }],
     })
+
+
+def _parameters_from_signature(signature: str) -> list[str]:
+    open_index = signature.find("(")
+    if open_index < 0:
+        return []
+    depth = 0
+    close_index = -1
+    for index in range(open_index, len(signature)):
+        char = signature[index]
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                close_index = index
+                break
+    if close_index < 0:
+        return []
+    return _split_top_level(signature[open_index + 1:close_index], ",")
+
+
+def _signature_symbols(text: str, callee: str, line: int, character: int, path: str | None) -> list[dict]:
+    index = build_document_index(text, path)
+    if "." in callee:
+        object_name, member_name = callee.rsplit(".", 1)
+        object_symbols = index["by_name"].get(object_name, [])
+        object_symbol = object_symbols[0] if object_symbols else None
+        if object_symbol and object_symbol["kind"] == "module":
+            module_index = _module_index_for(object_symbol, path)
+            if module_index:
+                return [
+                    symbol for symbol in module_index["by_name"].get(member_name, [])
+                    if symbol["kind"] in {"function", "method"}
+                ]
+        elif object_symbol:
+            property_symbol = index["properties"].get((object_symbol.get("type", ""), member_name))
+            if property_symbol and property_symbol["kind"] == "method":
+                return [property_symbol]
+        return []
+    symbols = [
+        symbol for symbol in index["by_name"].get(callee, [])
+        if symbol["kind"] in {"function", "method"}
+    ]
+    if symbols:
+        return symbols
+    if callee in BUILTIN_DOCS:
+        signature, documentation = BUILTIN_DOCS[callee]
+        return [{
+            "name": callee,
+            "kind": "function",
+            "signature": signature,
+            "documentation": documentation,
+            "type": "some",
+        }]
+    return []
+
+
+def handle_signature_help(request_id, params) -> None:
+    text_doc = params.get("textDocument", {})
+    uri = text_doc.get("uri")
+    text = DOCUMENTS.get(uri, "")
+    pos = params.get("position", {})
+    line = pos.get("line", 0)
+    character = pos.get("character", 0)
+    lines = _lines(text)
+    current = lines[line] if 0 <= line < len(lines) else ""
+    before = current[:character]
+
+    open_index = -1
+    depth = 0
+    in_string = False
+    escape = False
+    for index in range(len(before) - 1, -1, -1):
+        char = before[index]
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+            continue
+        if char == ")":
+            depth += 1
+        elif char == "(":
+            if depth == 0:
+                open_index = index
+                break
+            depth -= 1
+    if open_index < 0:
+        send({"jsonrpc": "2.0", "id": request_id, "result": None})
+        return
+
+    cursor = open_index - 1
+    while cursor >= 0 and before[cursor].isspace():
+        cursor -= 1
+    end = cursor + 1
+    while cursor >= 0 and (before[cursor].isalnum() or before[cursor] in "_."):
+        cursor -= 1
+    callee = before[cursor + 1:end]
+    if not callee:
+        send({"jsonrpc": "2.0", "id": request_id, "result": None})
+        return
+
+    active_parameter = 0
+    depth = 0
+    in_string = False
+    escape = False
+    for char in before[open_index + 1:]:
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+        elif char == "," and depth == 0:
+            active_parameter += 1
+
+    symbols = _signature_symbols(text, callee, line, character, _source_path(uri))
+    if not symbols:
+        send({"jsonrpc": "2.0", "id": request_id, "result": None})
+        return
+    signatures = []
+    for symbol in symbols:
+        signature = symbol.get("signature", symbol.get("name", callee))
+        parameters = _parameters_from_signature(signature)
+        signatures.append({
+            "label": signature,
+            "documentation": {
+                "kind": "markdown",
+                "value": symbol.get("documentation", ""),
+            },
+            "parameters": [{"label": parameter} for parameter in parameters],
+        })
+    send({
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "result": {
+            "signatures": signatures,
+            "activeSignature": 0,
+            "activeParameter": max(0, active_parameter),
+        },
+    })
+
+
+def handle_inlay_hint(request_id, params) -> None:
+    text_doc = params.get("textDocument", {})
+    uri = text_doc.get("uri")
+    text = DOCUMENTS.get(uri, "")
+    hint_range = params.get("range", {})
+    start_line = hint_range.get("start", {}).get("line", 0)
+    end_line = hint_range.get("end", {}).get("line", 10**9)
+    index = build_document_index(text, _source_path(uri))
+    hints = []
+    for symbol in index["symbols"]:
+        if symbol["kind"] != "variable" or symbol.get("annotated"):
+            continue
+        if symbol["type"] in {"some", "nova", ""}:
+            continue
+        if symbol["line"] < start_line or symbol["line"] > end_line:
+            continue
+        hints.append({
+            "position": {"line": symbol["line"], "character": symbol["end_col"]},
+            "label": f": {symbol['type']}",
+            "kind": 1,
+            "paddingLeft": False,
+            "paddingRight": False,
+        })
+    send({"jsonrpc": "2.0", "id": request_id, "result": hints})
+
+
+def handle_folding_range(request_id, params) -> None:
+    text_doc = params.get("textDocument", {})
+    uri = text_doc.get("uri")
+    text = DOCUMENTS.get(uri, "")
+    lines = _lines(text)
+    ranges: list[dict] = []
+
+    index = 0
+    while index < len(lines):
+        if lines[index].strip().startswith("#!"):
+            start = index
+            while index < len(lines) and "!#" not in lines[index]:
+                index += 1
+            if index < len(lines):
+                ranges.append({"startLine": start, "endLine": index, "kind": "comment"})
+        index += 1
+
+    index = 0
+    while index < len(lines):
+        if lines[index].strip().startswith("##"):
+            start = index
+            while index + 1 < len(lines) and lines[index + 1].strip().startswith("##"):
+                index += 1
+            if index > start:
+                ranges.append({"startLine": start, "endLine": index, "kind": "comment"})
+        index += 1
+
+    stack: list[int] = []
+    for token in _scan_semantic_tokens(text):
+        if token["kind"] != "operator":
+            continue
+        if token["value"] == "{":
+            stack.append(token["line"])
+        elif token["value"] == "}" and stack:
+            start = stack.pop()
+            if token["line"] > start:
+                ranges.append({"startLine": start, "endLine": token["line"], "kind": "region"})
+    send({"jsonrpc": "2.0", "id": request_id, "result": ranges})
 
 
 def _scan_semantic_tokens(text: str) -> list[dict]:
@@ -655,9 +1746,6 @@ def _classify_semantic_tokens(tokens: list[dict]) -> None:
         if word in KEYWORDS or word == "this":
             token["semantic"] = "keyword"
             continue
-        if word == "as":
-            token["semantic"] = "operator"
-            continue
         if word in BUILTINS:
             token["semantic"] = "builtin"
             continue
@@ -737,7 +1825,7 @@ def dispatch(message: dict) -> bool:
     params = message.get("params", {})
 
     if method == "initialize":
-        handle_initialize(request_id)
+        handle_initialize(request_id, params)
     elif method == "initialized":
         pass
     elif method == "shutdown":
@@ -771,20 +1859,32 @@ def dispatch(message: dict) -> bool:
         handle_completion(request_id, params)
     elif method == "textDocument/hover":
         handle_hover(request_id, params)
+    elif method == "textDocument/signatureHelp":
+        handle_signature_help(request_id, params)
     elif method == "textDocument/definition":
         handle_definition(request_id, params)
     elif method == "textDocument/declaration":
         handle_declaration(request_id, params)
+    elif method == "textDocument/typeDefinition":
+        handle_type_definition(request_id, params)
+    elif method == "textDocument/documentHighlight":
+        handle_document_highlight(request_id, params)
     elif method == "textDocument/documentSymbol":
         handle_document_symbol(request_id, params)
     elif method == "workspace/symbol":
         handle_workspace_symbol(request_id, params)
     elif method == "textDocument/references":
         handle_references(request_id, params)
+    elif method == "textDocument/prepareRename":
+        handle_prepare_rename(request_id, params)
     elif method == "textDocument/rename":
         handle_rename(request_id, params)
     elif method == "textDocument/formatting":
         handle_formatting(request_id, params)
+    elif method == "textDocument/inlayHint":
+        handle_inlay_hint(request_id, params)
+    elif method == "textDocument/foldingRange":
+        handle_folding_range(request_id, params)
     elif method == "textDocument/semanticTokens/full":
         handle_semantic_tokens(request_id, params)
     else:

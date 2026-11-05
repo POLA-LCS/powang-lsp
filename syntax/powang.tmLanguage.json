@@ -76,7 +76,7 @@
       }
     },
     "keyword": {
-      "match": "\\b(if|else|for|fun|return|use|type|extern|try|catch|finally|spawn|export|match|case|const)\\b",
+      "match": "\\b(if|else|for|fun|return|use|type|extern|try|catch|finally|spawn|export|match|case|const|as)\\b",
       "name": "keyword.control.powang"
     },
     "literal": {
@@ -104,7 +104,6 @@
         { "name": "keyword.operator.assignment.powang", "match": "\\+=|-=|\\*=|/=|=" },
         { "name": "keyword.operator.arithmetic.powang", "match": "\\+|-|\\*|/|%|\\[-\\]" },
         { "name": "keyword.operator.reference.powang", "match": "&" },
-        { "name": "keyword.operator.cast.powang", "match": "\\bas\\b" },
         { "name": "keyword.operator.type.powang", "match": "@|!" },
         { "name": "keyword.operator.arrow.powang", "match": ">>" },
         { "name": "keyword.operator.question.powang", "match": "\\?" },

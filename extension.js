@@ -232,15 +232,37 @@ function activate(context) {
                 position: { line: position.line, character: position.character },
             }).then(result => {
                 if (!Array.isArray(result)) return [];
+                const kindMap = {
+                    2: vscode.CompletionItemKind.Method,
+                    3: vscode.CompletionItemKind.Function,
+                    6: vscode.CompletionItemKind.Variable,
+                    7: vscode.CompletionItemKind.Class,
+                    9: vscode.CompletionItemKind.Module,
+                    10: vscode.CompletionItemKind.Property,
+                    14: vscode.CompletionItemKind.Keyword,
+                    15: vscode.CompletionItemKind.Snippet,
+                    21: vscode.CompletionItemKind.Constant,
+                };
                 return result.map(item => {
                     const ci = new vscode.CompletionItem(item.label);
-                    ci.kind = item.kind === 14 ? vscode.CompletionItemKind.Keyword : vscode.CompletionItemKind.Function;
+                    ci.kind = kindMap[item.kind] || vscode.CompletionItemKind.Text;
                     if (item.detail) ci.detail = item.detail;
+                    if (item.documentation) {
+                        const documentation = item.documentation.value || item.documentation;
+                        ci.documentation = new vscode.MarkdownString(documentation);
+                    }
+                    if (item.insertText) {
+                        ci.insertText = item.insertText;
+                        if (item.insertTextFormat === 2) {
+                            ci.insertTextFormat = vscode.InsertTextFormat.Snippet;
+                        }
+                    }
+                    if (item.sortText) ci.sortText = item.sortText;
                     return ci;
                 });
             }).catch(() => []);
         },
-    }, '.', ':');
+    }, '.', ':', '@', '&');
 
     const hoverProvider = vscode.languages.registerHoverProvider('powang', {
         provideHover(document, position) {
@@ -262,11 +284,14 @@ function activate(context) {
                 position: { line: position.line, character: position.character },
             }).then(result => {
                 if (!result) return null;
-                const loc = Array.isArray(result) ? result[0] : result;
-                if (!loc) return null;
-                const uri = vscode.Uri.parse(loc.uri);
-                const r = loc.range;
-                return new vscode.Location(uri, new vscode.Range(r.start.line, r.start.character, r.end.line, r.end.character));
+                const locations = Array.isArray(result) ? result : [result];
+                return locations.filter(Boolean).map(loc => {
+                    const r = loc.range;
+                    return new vscode.Location(
+                        vscode.Uri.parse(loc.uri),
+                        new vscode.Range(r.start.line, r.start.character, r.end.line, r.end.character)
+                    );
+                });
             }).catch(() => null);
         },
     });
@@ -278,14 +303,60 @@ function activate(context) {
                 position: { line: position.line, character: position.character },
             }).then(result => {
                 if (!result) return null;
-                const loc = Array.isArray(result) ? result[0] : result;
-                if (!loc) return null;
-                const uri = vscode.Uri.parse(loc.uri);
-                const r = loc.range;
-                return new vscode.Location(uri, new vscode.Range(r.start.line, r.start.character, r.end.line, r.end.character));
+                const locations = Array.isArray(result) ? result : [result];
+                return locations.filter(Boolean).map(loc => {
+                    const r = loc.range;
+                    return new vscode.Location(
+                        vscode.Uri.parse(loc.uri),
+                        new vscode.Range(r.start.line, r.start.character, r.end.line, r.end.character)
+                    );
+                });
             }).catch(() => null);
         },
     });
+
+    const typeDefinitionProvider = vscode.languages.registerTypeDefinitionProvider('powang', {
+        provideTypeDefinition(document, position) {
+            return protocol.request('textDocument/typeDefinition', {
+                textDocument: { uri: document.uri.toString() },
+                position: { line: position.line, character: position.character },
+            }).then(result => {
+                if (!result) return null;
+                const locations = Array.isArray(result) ? result : [result];
+                return locations.filter(Boolean).map(loc => {
+                    const r = loc.range;
+                    return new vscode.Location(
+                        vscode.Uri.parse(loc.uri),
+                        new vscode.Range(r.start.line, r.start.character, r.end.line, r.end.character)
+                    );
+                });
+            }).catch(() => null);
+        },
+    });
+
+    const documentSymbolKindMap = {
+        2: vscode.SymbolKind.Module,
+        5: vscode.SymbolKind.Class,
+        6: vscode.SymbolKind.Method,
+        7: vscode.SymbolKind.Property,
+        12: vscode.SymbolKind.Function,
+        13: vscode.SymbolKind.Variable,
+        14: vscode.SymbolKind.Constant,
+    };
+
+    const toDocumentSymbol = s => {
+        const symbol = new vscode.DocumentSymbol(
+            s.name,
+            s.detail || '',
+            documentSymbolKindMap[s.kind] || vscode.SymbolKind.Variable,
+            new vscode.Range(s.range.start.line, s.range.start.character, s.range.end.line, s.range.end.character),
+            new vscode.Range(s.selectionRange.start.line, s.selectionRange.start.character, s.selectionRange.end.line, s.selectionRange.end.character)
+        );
+        if (Array.isArray(s.children)) {
+            symbol.children = s.children.map(toDocumentSymbol);
+        }
+        return symbol;
+    };
 
     const documentSymbolProvider = vscode.languages.registerDocumentSymbolProvider('powang', {
         provideDocumentSymbols(document) {
@@ -293,18 +364,20 @@ function activate(context) {
                 textDocument: { uri: document.uri.toString() },
             }).then(result => {
                 if (!Array.isArray(result)) return [];
-                return result.map(s => new vscode.DocumentSymbol(
-                    s.name,
-                    '',
-                    s.kind === 5 ? vscode.SymbolKind.Class :
-                    s.kind === 12 ? vscode.SymbolKind.Function :
-                    vscode.SymbolKind.Variable,
-                    new vscode.Range(s.range.start.line, s.range.start.character, s.range.end.line, s.range.end.character),
-                    new vscode.Range(s.selectionRange.start.line, s.selectionRange.start.character, s.selectionRange.end.line, s.selectionRange.end.character)
-                ));
+                return result.map(toDocumentSymbol);
             }).catch(() => []);
         },
     });
+
+    const workspaceSymbolKindMap = {
+        2: vscode.SymbolKind.Module,
+        5: vscode.SymbolKind.Class,
+        6: vscode.SymbolKind.Method,
+        7: vscode.SymbolKind.Property,
+        12: vscode.SymbolKind.Function,
+        13: vscode.SymbolKind.Variable,
+        14: vscode.SymbolKind.Constant,
+    };
 
     const workspaceSymbolProvider = vscode.languages.registerWorkspaceSymbolProvider({
         provideWorkspaceSymbols(query) {
@@ -314,10 +387,8 @@ function activate(context) {
                     const loc = s.location;
                     return new vscode.SymbolInformation(
                         s.name,
-                        s.kind === 5 ? vscode.SymbolKind.Class :
-                    s.kind === 12 ? vscode.SymbolKind.Function :
-                    vscode.SymbolKind.Variable,
-                        '',
+                        workspaceSymbolKindMap[s.kind] || vscode.SymbolKind.Variable,
+                        s.containerName || '',
                         new vscode.Location(vscode.Uri.parse(loc.uri), new vscode.Range(loc.range.start.line, loc.range.start.character, loc.range.end.line, loc.range.end.character))
                     );
                 });
@@ -338,6 +409,19 @@ function activate(context) {
     });
 
     const renameProvider = vscode.languages.registerRenameProvider('powang', {
+        prepareRename(document, position) {
+            return protocol.request('textDocument/prepareRename', {
+                textDocument: { uri: document.uri.toString() },
+                position: { line: position.line, character: position.character },
+            }).then(result => {
+                if (!result || !result.range) return null;
+                const r = result.range;
+                return {
+                    range: new vscode.Range(r.start.line, r.start.character, r.end.line, r.end.character),
+                    placeholder: result.placeholder,
+                };
+            }).catch(() => null);
+        },
         provideRenameEdits(document, position, newName) {
             return protocol.request('textDocument/rename', {
                 textDocument: { uri: document.uri.toString() },
@@ -363,6 +447,84 @@ function activate(context) {
             }).then(result => {
                 if (!Array.isArray(result)) return [];
                 return result.map(e => new vscode.TextEdit(new vscode.Range(e.range.start.line, e.range.start.character, e.range.end.line, e.range.end.character), e.newText));
+            }).catch(() => []);
+        },
+    });
+
+    const signatureProvider = vscode.languages.registerSignatureHelpProvider('powang', {
+        provideSignatureHelp(document, position) {
+            return protocol.request('textDocument/signatureHelp', {
+                textDocument: { uri: document.uri.toString() },
+                position: { line: position.line, character: position.character },
+            }).then(result => {
+                if (!result || !Array.isArray(result.signatures)) return null;
+                const help = new vscode.SignatureHelp();
+                help.signatures = result.signatures.map(s => {
+                    const documentation = s.documentation && (s.documentation.value || s.documentation);
+                    const info = new vscode.SignatureInformation(s.label, new vscode.MarkdownString(documentation || ''));
+                    info.parameters = (s.parameters || []).map(p => new vscode.ParameterInformation(p.label));
+                    return info;
+                });
+                help.activeSignature = result.activeSignature || 0;
+                help.activeParameter = result.activeParameter || 0;
+                return help;
+            }).catch(() => null);
+        },
+    }, '(', ',');
+
+    const highlightProvider = vscode.languages.registerDocumentHighlightProvider('powang', {
+        provideDocumentHighlights(document, position) {
+            return protocol.request('textDocument/documentHighlight', {
+                textDocument: { uri: document.uri.toString() },
+                position: { line: position.line, character: position.character },
+            }).then(result => {
+                if (!Array.isArray(result)) return [];
+                return result.map(h => {
+                    const range = new vscode.Range(h.range.start.line, h.range.start.character, h.range.end.line, h.range.end.character);
+                    const kind = h.kind === 3 ? vscode.DocumentHighlightKind.Write :
+                        h.kind === 2 ? vscode.DocumentHighlightKind.Read :
+                        vscode.DocumentHighlightKind.Text;
+                    return new vscode.DocumentHighlight(range, kind);
+                });
+            }).catch(() => []);
+        },
+    });
+
+    const inlayHintProvider = vscode.languages.registerInlayHintsProvider('powang', {
+        provideInlayHints(document, range) {
+            return protocol.request('textDocument/inlayHint', {
+                textDocument: { uri: document.uri.toString() },
+                range: {
+                    start: { line: range.start.line, character: range.start.character },
+                    end: { line: range.end.line, character: range.end.character },
+                },
+            }).then(result => {
+                if (!Array.isArray(result)) return [];
+                return result.map(h => {
+                    const hint = new vscode.InlayHint(
+                        new vscode.Position(h.position.line, h.position.character),
+                        h.label
+                    );
+                    hint.kind = h.kind === 1 ? vscode.InlayHintKind.Type : vscode.InlayHintKind.Parameter;
+                    if (h.paddingLeft) hint.paddingLeft = true;
+                    if (h.paddingRight) hint.paddingRight = true;
+                    return hint;
+                });
+            }).catch(() => []);
+        },
+    });
+
+    const foldingProvider = vscode.languages.registerFoldingRangeProvider('powang', {
+        provideFoldingRanges(document) {
+            return protocol.request('textDocument/foldingRange', {
+                textDocument: { uri: document.uri.toString() },
+            }).then(result => {
+                if (!Array.isArray(result)) return [];
+                return result.map(f => new vscode.FoldingRange(
+                    f.startLine,
+                    f.endLine,
+                    f.kind === 'comment' ? vscode.FoldingRangeKind.Comment : vscode.FoldingRangeKind.Region
+                ));
             }).catch(() => []);
         },
     });
@@ -415,13 +577,18 @@ function activate(context) {
         diagnosticCollection,
         completionProvider,
         hoverProvider,
+        signatureProvider,
         definitionProvider,
         declarationProvider,
+        typeDefinitionProvider,
+        highlightProvider,
         documentSymbolProvider,
         workspaceSymbolProvider,
         referenceProvider,
         renameProvider,
         formattingProvider,
+        inlayHintProvider,
+        foldingProvider,
         semanticProvider
     );
 
