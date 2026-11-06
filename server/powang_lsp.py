@@ -40,7 +40,7 @@ BUILTINS = [
 ]
 
 BUILTIN_TYPES = {
-    "some", "int", "num", "boolean", "str", "arr", "map",
+    "some", "any", "int", "num", "boolean", "str", "arr", "map",
     "function", "file", "task",
 }
 
@@ -87,6 +87,7 @@ BUILTIN_DOCS: dict[str, tuple[str, str]] = {
 
 BUILTIN_TYPE_DOCS: dict[str, str] = {
     "some": "The gradual unknown type. It accepts any value.",
+    "any": "Alias for some. The gradual unknown type. It accepts any value.",
     "int": "A whole number.",
     "num": "A floating-point number.",
     "boolean": "Either true or false.",
@@ -1190,7 +1191,7 @@ def handle_hover(request_id, params) -> None:
         respond(_symbol_markdown(symbols[0]))
         return
 
-    respond(f"**identifier** `{word}`\n\nNo type information available.")
+    respond(f"`{word}`")
 
 
 def _location(uri, line, character, length=1):
@@ -1924,7 +1925,12 @@ def handle_inlay_hint(request_id, params) -> None:
     for symbol in index["symbols"]:
         if symbol["kind"] != "variable" or symbol.get("annotated"):
             continue
-        if symbol["type"] in {"some", "nova", ""}:
+        if symbol["type"] in {"some", "any", "nova", ""}:
+            continue
+        line_text = lines[symbol["line"]] if symbol["line"] < len(lines) else ""
+        # Only show the ghost type for inferred declarations (:=), not for
+        # assignments to an existing variable.
+        if ":=" not in line_text:
             continue
         if symbol["line"] < start_line or symbol["line"] > end_line:
             continue
