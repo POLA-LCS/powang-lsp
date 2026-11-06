@@ -40,7 +40,7 @@ BUILTINS = [
 ]
 
 BUILTIN_TYPES = {
-    "some", "any", "int", "num", "bool", "str", "arr", "map",
+    "some", "any", "int", "num", "bool", "str", "arr", "map", "tup",
     "function", "file", "task",
 }
 
@@ -93,6 +93,7 @@ BUILTIN_TYPE_DOCS: dict[str, str] = {
     "bool": "Either true or false.",
     "str": "A sequence of characters.",
     "arr": "An ordered collection. Use arr[element] for a typed arr.",
+    "tup": "A fixed-size collection. Use tup[t1, t2, ...] for a typed tup.",
     "map": "A key-value collection.",
     "function": "A callable value.",
     "file": "An open file stream.",
