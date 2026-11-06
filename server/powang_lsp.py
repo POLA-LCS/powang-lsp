@@ -40,7 +40,7 @@ BUILTINS = [
 ]
 
 BUILTIN_TYPES = {
-    "some", "any", "int", "num", "bool", "str", "arr", "map", "tup",
+    "any", "int", "num", "bool", "str", "arr", "map", "tup",
     "function", "file", "task",
 }
 
@@ -77,17 +77,16 @@ BUILTIN_DOCS: dict[str, tuple[str, str]] = {
     "typeof": ("typeof(value) -> str", "Returns the runtime type name of a value."),
     "size": ("size(...) -> int", "Returns the total size of the given iterables."),
     "open": ("open(path, mode?) -> file", "Opens a file."),
-    "write": ("write(file, text) -> some", "Writes text to a file."),
+    "write": ("write(file, text) -> any", "Writes text to a file."),
     "read": ("read(file) -> str", "Reads a file."),
     "close": ("close(file) -> bool", "Closes a file."),
-    "wait": ("wait(task, timeout_ms?) -> some", "Waits for a task and returns its result."),
-    "cancel": ("cancel(task) -> some", "Cancels a task."),
+    "wait": ("wait(task, timeout_ms?) -> any", "Waits for a task and returns its result."),
+    "cancel": ("cancel(task) -> any", "Cancels a task."),
     "task_status": ("task_status(task) -> str", "Returns the status of a task."),
 }
 
 BUILTIN_TYPE_DOCS: dict[str, str] = {
-    "some": "The gradual unknown type. It accepts any value.",
-    "any": "Alias for some. The gradual unknown type. It accepts any value.",
+    "any": "The gradual unknown type. It accepts any value.",
     "int": "A whole number.",
     "num": "A floating-point number.",
     "bool": "Either true or false.",
@@ -455,7 +454,7 @@ def _parse_parameters(params_text: str) -> list[tuple[str, str]]:
             type_text = rest.split("=", 1)[0].strip()
         else:
             name = part.split("=", 1)[0].strip()
-            type_text = "some"
+            type_text = "any"
         if name:
             result.append((name, type_text))
     return result
@@ -521,7 +520,7 @@ def _parse_function_signature(line: str) -> dict | None:
 def _infer_expression_type(expr: str, by_name: dict[str, list[dict]]) -> str:
     expr = _strip_semicolon(expr)
     if not expr:
-        return "some"
+        return "any"
     cast_match = re.search(r"\bas\s+([A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]+\])?)\s*$", expr)
     if cast_match:
         return cast_match.group(1)
@@ -553,12 +552,12 @@ def _infer_expression_type(expr: str, by_name: dict[str, list[dict]]) -> str:
         for symbol in by_name.get(call_match.group(1), []):
             if symbol["kind"] in {"function", "method"} and symbol.get("type"):
                 return symbol["type"]
-        return "some"
+        return "any"
     if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", expr):
         for symbol in by_name.get(expr, []):
             if symbol["kind"] in {"variable", "parameter", "const"}:
                 return symbol["type"]
-    return "some"
+    return "any"
 
 
 def _collect_doc_comment(lines: list[str], index: int) -> str:
@@ -826,11 +825,11 @@ def _symbol_markdown(symbol: dict) -> str:
     elif kind == "module":
         body = f"**module** `{symbol.get('decl_text', name)}`"
     elif kind == "parameter":
-        body = f"**parameter** `{name}: {symbol.get('type', 'some')}`"
+        body = f"**parameter** `{name}: {symbol.get('type', 'any')}`"
     elif kind == "property":
-        body = f"**property** `{name}: {symbol.get('type', 'some')}`"
+        body = f"**property** `{name}: {symbol.get('type', 'any')}`"
     else:
-        body = f"**variable** `{name}: {symbol.get('type', 'some')}`"
+        body = f"**variable** `{name}: {symbol.get('type', 'any')}`"
     if documentation:
         body += f"\n\n{documentation}"
     return body
@@ -1810,7 +1809,7 @@ def _signature_symbols(text: str, callee: str, line: int, character: int, path: 
             "kind": "function",
             "signature": signature,
             "documentation": documentation,
-            "type": "some",
+            "type": "any",
         }]
     return []
 
@@ -1926,7 +1925,7 @@ def handle_inlay_hint(request_id, params) -> None:
     for symbol in index["symbols"]:
         if symbol["kind"] != "variable" or symbol.get("annotated"):
             continue
-        if symbol["type"] in {"some", "any", "nova", ""}:
+        if symbol["type"] in {"any", "nova", ""}:
             continue
         line_text = lines[symbol["line"]] if symbol["line"] < len(lines) else ""
         # Only show the ghost type for inferred declarations (:=), not for

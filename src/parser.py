@@ -8,7 +8,7 @@ import copy
 
 NATI_TYPES: set[str] = {
     PowangNova.type   ,
-    PowangSome.type   ,
+    PowangAny.type   ,
     PowangInteger.type,
     PowangNumber.type ,
     PowangBoolean.type,
@@ -740,7 +740,7 @@ class Parser:
                     start_expression = doToken(ParserTokenType.DECLARATION_UNDEFINED, {
                         "identifier": synthetic_identifier,
                         "type": doToken(ParserTokenType.TYPE, {
-                            'value': PowangSome.type,
+                            'value': PowangAny.type,
                             'const': False,
                             'weak': False,
                             'reference': None,
@@ -764,13 +764,13 @@ class Parser:
                 ParserTokenType.DECLARATION_TYPED_VAR
             }:
                 ## Bare identifier head (`for x >> arr {}`): implicitly declare
-                ## the iterator as weakly-typed `some` so any element binds.
+                ## the iterator as weakly-typed `any` so any element binds.
                 assert start_expression['type'] == LexerTokenType.IDENTIFIER, \
                     powang_error_syntax('for each expression', 'iterator must be a variable declaration or an identifier')
                 start_expression = doToken(ParserTokenType.DECLARATION_UNDEFINED, {
                     "identifier": start_expression,
                     "type": doToken(ParserTokenType.TYPE, {
-                        'value': PowangSome.type,
+                        'value': PowangAny.type,
                         'const': False,
                         'weak': False,
                         'reference': None,
@@ -1340,7 +1340,7 @@ class Parser:
             self.consume(LexerTokenType.RIGHT_BRACKET)
 
         ## `arr[element]` is the typed form. Bare `arr` is sugar for
-        ## `arr[any]`, where `any` resolves to the gradual `some` type.
+        ## `arr[any]`, where `any` resolves to the gradual `any` type.
         if type_identifier == PowangArray.type and self.next is not None and self.next.type == LexerTokenType.LEFT_BRACKET:
             self.consume(LexerTokenType.LEFT_BRACKET, 'arr element type')
             element_type = self.Type()
@@ -1383,7 +1383,7 @@ class Parser:
 
         ## `any` is the gradual unknown used by bare `arr` sugar.
         if type_identifier == 'any':
-            type_identifier = PowangSome.type
+            type_identifier = PowangAny.type
 
         ## A trailing `?` marks an error-union return annotation:
         ## `fun find(id: int): map? { ... }` may also return `error`.
