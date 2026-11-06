@@ -984,7 +984,7 @@ def handle_initialize(request_id, params) -> None:
             },
             "serverInfo": {
                 "name": "powang-lsp",
-                "version": "0.10.1",
+                "version": "0.10.2",
             },
         },
     })
