@@ -10,7 +10,7 @@ This module implements the first vertical slice of gradual typing:
 * the postfix ``?`` error-propagation operator
 
 The checker is deliberately conservative. Anything it does not understand is
-skipped and treated as ``any``, which is compatible with everything. That is
+skipped and treated as ``some``, which is compatible with everything. That is
 what makes the typing gradual: unannotated programs keep running exactly as
 before.
 """
@@ -31,7 +31,7 @@ from .powang_types import (
     PowangNova,
     PowangNumber,
     PowangObjectType,
-    PowangAny,
+    PowangAnyType,
     PowangString,
     PowangTask,
 )
@@ -42,7 +42,7 @@ from .error import (
 )
 from .lexer.token import LexerTokenType, ParserTokenType
 
-ANY = PowangAny.type
+ANY = PowangAnyType.type
 NOVA = PowangNova.type
 BOOLEAN = PowangBoolean.type
 INTEGER = PowangInteger.type
@@ -191,6 +191,12 @@ class _TypeChecker:
     def _bind(self, name: str, type_name: str, annotated: bool, weak: bool = False):
         if not name:
             return
+        if name in self.scopes[-1]:
+            self._error(
+                f"variable '{name}' is already declared in this scope",
+                ["choose a different name or assign to the existing variable with '='"],
+                where='variable declaration',
+            )
         self.scopes[-1][name] = _VariableInfo(type_name, annotated, weak)
 
     def _error(self, message: str, details: Optional[list[str]] = None, where: str = 'type checker'):
@@ -205,35 +211,80 @@ class _TypeChecker:
     def _identifier_name(node: Any) -> Optional[str]:
         if not isinstance(node, dict):
             return None
-        if node.get('type') != LexerTokenType.IDENTIFIER:
-            return None
-        value = node.get('value')
-        return value if isinstance(value, str) else None
+        if node.get('type') == LexerTokenType.IDENTIFIER:
+            value = node.get('value')
+            return value if isinstance(value, str) else None
+        if node.get('type') == ParserTokenType.TYPE:
+            inner = node.get('value')
+            if isinstance(inner, dict):
+                value = inner.get('value')
+                if isinstance(value, str):
+                    return value
+        return None
 
     def _type_name_from_node(self, node: Any) -> Optional[str]:
         """Resolve a type name used after `as`, including `arr[...]`."""
         if not isinstance(node, dict):
+            return None
+        if node.get('type') == ParserTokenType.TYPE:
+            inner = node.get('value')
+            if isinstance(inner, dict):
+                name = inner.get('value')
+                if isinstance(name, str):
+                    generics = inner.get('generics')
+                    base = 'any' if name == 'any' else self._normalized_type_name(name)
+                    if isinstance(generics, list) and generics:
+                        types = [self._type_name_from_node(g) for g in generics]
+                        types = [t if t is not None else 'any' for t in types]
+                        if inner.get('variadic'):
+                            types.append('...')
+                        if name == 'tup':
+                            return 'tup[' + ', '.join(types) + ']'
+                        if name in (PowangMap.type, 'map'):
+                            return 'map[' + ', '.join(types) + ']'
+                        if name in (PowangArray.type, 'arr'):
+                            if types:
+                                return _array_of(types[0])
+                    return base
             return None
         if node.get('type') == LexerTokenType.IDENTIFIER:
             name = node.get('value')
             if not isinstance(name, str):
                 return None
             if name == 'any':
-                return ANY
+                return 'any'
             return self._normalized_type_name(name)
         if node.get('type') == ParserTokenType.INDEX_EXPRESSION:
             value = node.get('value')
             if not isinstance(value, dict):
                 return None
-            if self._identifier_name(value.get('target')) != ARRAY:
-                return None
-            element = self._type_name_from_node(value.get('index'))
-            if element is None:
-                return ARRAY
-            return _array_of(element)
+            target_name = self._identifier_name(value.get('target'))
+            index_node = value.get('index')
+            if target_name == ARRAY:
+                element = self._type_name_from_node(index_node)
+                if element is None:
+                    return ARRAY
+                return _array_of(element)
+            if target_name == 'tup':
+                if isinstance(index_node, dict) and index_node.get('type') == ParserTokenType.TUPLE_EXPRESSION:
+                    elems = index_node.get('value', {}).get('elements', []) if isinstance(index_node.get('value'), dict) else index_node.get('elements', [])
+                    if not isinstance(elems, list):
+                        elems = []
+                    types = [self._type_name_from_node(e) for e in elems]
+                    types = [t if t is not None else SOME for t in types]
+                    return 'tup[' + ', '.join(types) + ']'
+                element = self._type_name_from_node(index_node)
+                if element is None:
+                    return 'tup'
+                return 'tup[' + element + ']'
+            if target_name == MAP:
+                return MAP
+            return None
         return None
 
     def _normalized_type_name(self, name: str) -> str:
+        if name == "any":
+            return ANY
         seen: set[str] = set()
         while name in self.type_alias and name not in seen:
             seen.add(name)
@@ -269,6 +320,23 @@ class _TypeChecker:
             element_node = inner.get('element_type')
         if resolved == ARRAY and element_node is not None:
             resolved = _array_of(self._annotation_type(element_node, ANY))
+        if resolved == 'tup':
+            generics = None
+            if isinstance(inner, dict):
+                generics = inner.get('generics')
+            if isinstance(generics, list) and generics:
+                types = [self._annotation_type(g, ANY) if isinstance(g, dict) else ANY for g in generics]
+                if inner.get('variadic'):
+                    types.append('...')
+                resolved = 'tup[' + ', '.join(types) + ']'
+        if resolved == MAP:
+            generics = None
+            if isinstance(inner, dict):
+                generics = inner.get('generics')
+            if isinstance(generics, list) and len(generics) >= 2:
+                kt = self._annotation_type(generics[0], ANY) if isinstance(generics[0], dict) else ANY
+                vt = self._annotation_type(generics[1], ANY) if isinstance(generics[1], dict) else ANY
+                resolved = 'map[' + kt + ', ' + vt + ']'
         return f'&{resolved}' if reference else resolved
 
     @staticmethod
@@ -305,6 +373,12 @@ class _TypeChecker:
             return target == source
         if target == source:
             return True
+        if target.startswith(('tup[', 'map[')) or source.startswith(('tup[', 'map[')):
+            try:
+                from . import typespec as _ts
+                return _ts.assignable(_ts.type_of_str(target), _ts.type_of_str(source))
+            except Exception:
+                return False
         if _is_array_type(target) and _is_array_type(source):
             target_element = _array_element_type(target)
             source_element = _array_element_type(source)
@@ -414,9 +488,11 @@ class _TypeChecker:
         if node_type == ParserTokenType.ARRAY_EXPRESSION:
             return self._infer_array(value)
         if node_type == ParserTokenType.TUPLE_EXPRESSION:
-            for element in value.get('elements', []) if isinstance(value, dict) else []:
-                self._infer(element)
-            return 'tup'
+            elements = value.get('elements', []) if isinstance(value, dict) else []
+            element_types = [self._infer(element) for element in elements]
+            if not element_types:
+                return 'tup'
+            return 'tup[' + ', '.join(element_types) + ']'
         if node_type == ParserTokenType.KEY_VALUE_PAIR:
             self._infer(value.get('key'))
             self._infer(value.get('value'))

@@ -11,7 +11,7 @@ def builtin_size(*args: PowangAny):
             arg.type,
         )
         
-        if arg.type == PowangAny.type:
+        if arg.type == PowangAnyType.type:
             arg = PowangTypeMap(arg.any)(arg.data)
         
         assert (size := arg.size()) is not None, powang_error_not_iterable('function: size', arg.type, [

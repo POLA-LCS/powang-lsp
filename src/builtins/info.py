@@ -2,7 +2,7 @@ from ..powang_types import *
 from ..error import *
 
 def builtin_typeof(arg: PowangAny):
-    if arg.type == PowangAny.type:
+    if arg.type == PowangAnyType.type:
         return PowangString(arg.any)
     if arg.type == PowangObjectType.type:
         ## User defined types carry their concrete name, fall back to 'object'

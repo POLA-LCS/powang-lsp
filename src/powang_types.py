@@ -27,7 +27,7 @@ class PowangTypeBase:
     type      : Any  = None
     type_name : str  = ''
     defined   : bool = True
-    any      : str  = ''
+    any       : str  = ''
     const     : PropertyConst
     weak      : PropertyWeak
     sizeable  : bool = False
@@ -113,8 +113,8 @@ class PowangNova(PowangTypeBase):
             return right
         return None
     
-# ====== ANY =========
-class PowangAny(PowangTypeBase):
+# ====== SOME =========
+class PowangAnyType(PowangTypeBase):
     data: Any
     type: Literal['any'] = 'any'
     def __init__(self, data: Any = 0):
@@ -731,7 +731,7 @@ class PowangTask(PowangTypeBase):
 # ====== ANY =========
 PowangAny = Union[
     PowangNova,        # None
-    PowangAny,        # Any
+    PowangAnyType,        # Any
     PowangBoolean,     # bool
     PowangInteger,     # int
     PowangNumber,      # float
@@ -751,7 +751,7 @@ PowangAny = Union[
 def PowangTypeMap(type: str) -> Callable[(...), PowangAny]:
     return {
         PowangNova.type       : PowangNova,
-        PowangAny.type       : PowangAny,
+        PowangAnyType.type       : PowangAnyType,
         PowangInteger.type    : PowangInteger,
         PowangNumber.type     : PowangNumber,
         PowangBoolean.type    : PowangBoolean,

@@ -8,7 +8,7 @@ import copy
 
 NATI_TYPES: set[str] = {
     PowangNova.type   ,
-    PowangAny.type   ,
+    PowangAnyType.type   ,
     PowangInteger.type,
     PowangNumber.type ,
     PowangBoolean.type,
@@ -740,7 +740,7 @@ class Parser:
                     start_expression = doToken(ParserTokenType.DECLARATION_UNDEFINED, {
                         "identifier": synthetic_identifier,
                         "type": doToken(ParserTokenType.TYPE, {
-                            'value': PowangAny.type,
+                            'value': PowangAnyType.type,
                             'const': False,
                             'weak': False,
                             'reference': None,
@@ -764,13 +764,13 @@ class Parser:
                 ParserTokenType.DECLARATION_TYPED_VAR
             }:
                 ## Bare identifier head (`for x >> arr {}`): implicitly declare
-                ## the iterator as weakly-typed `any` so any element binds.
+                ## the iterator as weakly-typed `some` so any element binds.
                 assert start_expression['type'] == LexerTokenType.IDENTIFIER, \
                     powang_error_syntax('for each expression', 'iterator must be a variable declaration or an identifier')
                 start_expression = doToken(ParserTokenType.DECLARATION_UNDEFINED, {
                     "identifier": start_expression,
                     "type": doToken(ParserTokenType.TYPE, {
-                        'value': PowangAny.type,
+                        'value': PowangAnyType.type,
                         'const': False,
                         'weak': False,
                         'reference': None,
@@ -1157,6 +1157,14 @@ class Parser:
     def IndexExpression(self, target: DictRepr):
         self.consume(LexerTokenType.LEFT_BRACKET)
         index = self.Expression()
+        if self.next.type == LexerTokenType.COMMA:
+            elements = [index]
+            while self.next.type == LexerTokenType.COMMA:
+                self.advance()
+                elements.append(self.Expression())
+            index = doToken(ParserTokenType.TUPLE_EXPRESSION, {
+                "elements": elements,
+            }).toDict()
         self.consume(LexerTokenType.RIGHT_BRACKET)
         return doToken(ParserTokenType.INDEX_EXPRESSION, {
             "target": target,
@@ -1327,20 +1335,25 @@ class Parser:
         type_identifier: str = self.Identifier()['value']
 
         generics: list = []
-        if type_identifier == 'tup' and self.next.type == LexerTokenType.LEFT_BRACKET:
+        variadic: bool = False
+        if type_identifier in ('tup', PowangMap.type) and self.next.type == LexerTokenType.LEFT_BRACKET:
             self.consume(LexerTokenType.LEFT_BRACKET)
             while self.next.type != LexerTokenType.RIGHT_BRACKET:
+                if self.next.type == LexerTokenType.ELLIPSIS:
+                    self.advance('variadic type')
+                    variadic = True
+                    break
                 generics.append(self.Type())
                 if self.next.type == LexerTokenType.COMMA:
                     self.advance()
                 elif self.next.type != LexerTokenType.RIGHT_BRACKET:
-                    raise powang_throw(powang_error_syntax('tuple type', "Expected ',' or ']' in tup[...]", [
+                    raise powang_throw(powang_error_syntax('generic type', "Expected ',' or ']' in type[...]", [
                         f"but {TokenToString(self.next.type)} was encountered",
                     ]))
             self.consume(LexerTokenType.RIGHT_BRACKET)
 
         ## `arr[element]` is the typed form. Bare `arr` is sugar for
-        ## `arr[any]`, where `any` resolves to the gradual `any` type.
+        ## `arr[any]`, where `any` resolves to the gradual `some` type.
         if type_identifier == PowangArray.type and self.next is not None and self.next.type == LexerTokenType.LEFT_BRACKET:
             self.consume(LexerTokenType.LEFT_BRACKET, 'arr element type')
             element_type = self.Type()
@@ -1383,7 +1396,7 @@ class Parser:
 
         ## `any` is the gradual unknown used by bare `arr` sugar.
         if type_identifier == 'any':
-            type_identifier = PowangAny.type
+            type_identifier = PowangAnyType.type
 
         ## A trailing `?` marks an error-union return annotation:
         ## `fun find(id: int): map? { ... }` may also return `error`.
@@ -1399,6 +1412,7 @@ class Parser:
             "reference": reference,
             "element_type": element_type,
             "generics": generics,
+            "variadic": variadic,
         }).toDict()
 
     def helper_KeyValuePair(self, key: DictRepr):

@@ -318,8 +318,8 @@ def _match_segments(
 def _to_plain(value: Any) -> Any:
     """Unwrap Powang values a callback may return.
 
-    A Powang function declared to return ``any`` reaches Python as the raw
-    payload of the ``any`` wrapper. Its nested map keys are still Powang
+    A Powang function declared to return ``some`` reaches Python as the raw
+    payload of the ``some`` wrapper. Its nested map keys are still Powang
     string objects, so converting them here keeps middleware that returns a
     response map (or nova to continue) usable without changing the shared
     extern bridge.

@@ -83,7 +83,7 @@ def check_cancellation() -> None:
 
 
 def _require_task(where: str, value: PowangAny) -> PowangTask:
-    if value.type == PowangAny.type:
+    if value.type == PowangAnyType.type:
         value = PowangTypeMap(value.any)(value.data)
     if value.type != PowangTask.type:
         raise powang_throw(powang_error_format(

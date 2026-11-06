@@ -521,7 +521,7 @@ def _infer_expression_type(expr: str, by_name: dict[str, list[dict]]) -> str:
     expr = _strip_semicolon(expr)
     if not expr:
         return "any"
-    cast_match = re.search(r"\bas\s+([A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]+\])?)\s*$", expr)
+    cast_match = re.search(r"\bas\s+([A-Za-z_][A-Za-z0-9_]*(?:\[.*\])?)\s*$", expr)
     if cast_match:
         return cast_match.group(1)
     if expr.startswith('$"') or expr.startswith('"'):
@@ -984,7 +984,7 @@ def handle_initialize(request_id, params) -> None:
             },
             "serverInfo": {
                 "name": "powang-lsp",
-                "version": "0.10.2",
+                "version": "0.11.0",
             },
         },
     })

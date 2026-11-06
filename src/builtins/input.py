@@ -35,7 +35,7 @@ def builtin_input(receptor: Optional[PowangAny] = None):
             receptor.data = float(python_input)
         elif receptor.type == PowangString.type:
             receptor.data = python_input
-        elif receptor.type == PowangAny.type:
+        elif receptor.type == PowangAnyType.type:
             try:
                 receptor.data = int(python_input)
                 receptor.any = PowangInteger.type
