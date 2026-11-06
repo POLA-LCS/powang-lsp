@@ -190,6 +190,28 @@ def _diag(uri: str, line: int, col: int, end_col: int, severity: int, code: str,
     return item
 
 
+def _is_comment_line(lines: list[str], index: int) -> bool:
+    # Determine if a line is inside or is a comment.
+    in_block = False
+    for i in range(0, index + 1):
+        s = lines[i].strip()
+        if in_block:
+            if "!#" in s:
+                in_block = False
+            continue
+        if s.startswith("#!"):
+            if "!#" in s and s.index("!#") > s.index("#!"):
+                continue
+            in_block = True
+            if i == index:
+                return True
+            continue
+        if s.startswith("##"):
+            if i == index:
+                return True
+    return in_block
+
+
 def _lint_document(text: str, uri: str) -> list[dict]:
     diagnostics: list[dict] = []
     lines = _lines(text)
@@ -197,16 +219,18 @@ def _lint_document(text: str, uri: str) -> list[dict]:
 
     # Trailing whitespace and line length and final newline.
     for index, line in enumerate(lines):
+        if _is_comment_line(lines, index):
+            continue
         if line != line.rstrip(" \t"):
             diagnostics.append(_diag(uri, index, len(line.rstrip(" \t")), len(line), 2, "PW004", "trailing whitespace", [1]))
-        if len(line) > 88:
-            diagnostics.append(_diag(uri, index, 88, len(line), 2, "PW003", f"line too long ({len(line)} > 88)", [1]))
     if text and not text.endswith("\n"):
         diagnostics.append(_diag(uri, len(lines) - 1, 0, 1, 3, "PW005", "missing final newline"))
 
     # Unused imports tracking.
     imported_names: list[tuple[int, str]] = []
     for index, line in enumerate(lines):
+        if _is_comment_line(lines, index):
+            continue
         stripped = line.strip()
         use_match = re.match(r"^use\s+(?:\"[^\"]+\"|([A-Za-z_][A-Za-z0-9_]*))(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*|\*))?", stripped)
         if use_match:
@@ -231,6 +255,8 @@ def _lint_document(text: str, uri: str) -> list[dict]:
     # Track declared variable/const names and check references.
     declared: list[tuple[int, str]] = []
     for index, line in enumerate(lines):
+        if _is_comment_line(lines, index):
+            continue
         stripped = line.strip()
         const_match = re.match(r"^const\s+([A-Za-z_][A-Za-z0-9_]*)", stripped)
         if const_match:
@@ -251,8 +277,20 @@ def _lint_document(text: str, uri: str) -> list[dict]:
             diagnostics.append(_diag(uri, decl_line, 0, len(lines[decl_line]), 2, "PW002", f"unused variable '{name}'", [1]))
 
     # Naming convention: functions and variables should be snake_case.
+    in_block_comment = False
     for index, line in enumerate(lines):
         stripped = line.strip()
+        if in_block_comment:
+            if "!#" in stripped:
+                in_block_comment = False
+            continue
+        if stripped.startswith("#!"):
+            in_block_comment = True
+            if "!#" in stripped:
+                in_block_comment = False
+            continue
+        if stripped.startswith("##"):
+            continue
         fun_match = re.search(r"\bfun\s+([A-Za-z_][A-Za-z0-9_]*)", stripped)
         if fun_match:
             name = fun_match.group(1)
@@ -272,6 +310,9 @@ def _lint_document(text: str, uri: str) -> list[dict]:
     # Simple heuristic: count lines between a fun declaration and its closing brace.
     i = 0
     while i < len(lines):
+        if _is_comment_line(lines, i):
+            i += 1
+            continue
         if re.search(r"\bfun\s+[A-Za-z_]", lines[i]):
             start = i
             depth = 0
@@ -293,7 +334,7 @@ def _lint_document(text: str, uri: str) -> list[dict]:
             # nesting depth
             max_depth = 0
             cur = 0
-            for k in range(start, j + 1):
+            for k in range(start, min(j + 1, len(lines))):
                 for ch in lines[k]:
                     if ch == "{":
                         cur += 1
@@ -308,7 +349,7 @@ def _lint_document(text: str, uri: str) -> list[dict]:
         i += 1
 
     # Import order: use statements should be grouped and sorted.
-    use_lines = [(idx, lines[idx].strip()) for idx, line in enumerate(lines) if line.strip().startswith("use ")]
+    use_lines = [(idx, lines[idx].strip()) for idx, line in enumerate(lines) if line.strip().startswith("use ") and not _is_comment_line(lines, idx)]
     if len(use_lines) > 1:
         names = [l.strip() for _, l in use_lines]
         if names != sorted(names):
@@ -317,6 +358,8 @@ def _lint_document(text: str, uri: str) -> list[dict]:
     # Duplicate imports
     seen_imports: set[str] = set()
     for idx, line in enumerate(lines):
+        if _is_comment_line(lines, idx):
+            continue
         stripped = line.strip()
         if stripped.startswith("use "):
             if stripped in seen_imports:
@@ -1565,13 +1608,7 @@ def handle_code_action(request_id, params) -> None:
                     }
                 },
             })
-        if code == "PW003":
-            actions.append({
-                "title": "Wrap line",
-                "kind": "quickfix",
-                "diagnostics": [diag],
-                "command": {"title": "format", "command": "powang.formatDocument", "arguments": [uri]},
-            })
+
 
     # Organize imports
     actions.append({
