@@ -174,6 +174,158 @@ def _source_path(uri: str) -> str | None:
     return path
 
 
+def _diag(uri: str, line: int, col: int, end_col: int, severity: int, code: str, message: str, tags: list[int] | None = None, source: str = "powang") -> dict:
+    item = {
+        "range": {
+            "start": {"line": line, "character": col},
+            "end": {"line": line, "character": max(col + 1, end_col)},
+        },
+        "severity": severity,
+        "source": source,
+        "code": code,
+        "message": message,
+    }
+    if tags:
+        item["tags"] = tags
+    return item
+
+
+def _lint_document(text: str, uri: str) -> list[dict]:
+    diagnostics: list[dict] = []
+    lines = _lines(text)
+    path = _source_path(uri)
+
+    # Trailing whitespace and line length and final newline.
+    for index, line in enumerate(lines):
+        if line != line.rstrip(" \t"):
+            diagnostics.append(_diag(uri, index, len(line.rstrip(" \t")), len(line), 2, "PW004", "trailing whitespace", [1]))
+        if len(line) > 88:
+            diagnostics.append(_diag(uri, index, 88, len(line), 2, "PW003", f"line too long ({len(line)} > 88)", [1]))
+    if text and not text.endswith("\n"):
+        diagnostics.append(_diag(uri, len(lines) - 1, 0, 1, 3, "PW005", "missing final newline"))
+
+    # Unused imports tracking.
+    imported_names: list[tuple[int, str]] = []
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        use_match = re.match(r"^use\s+(?:\"[^\"]+\"|([A-Za-z_][A-Za-z0-9_]*))(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*|\*))?", stripped)
+        if use_match:
+            name = use_match.group(2) or use_match.group(1)
+            if name and name != "*":
+                imported_names.append((index, name))
+
+    # Count identifier occurrences excluding the import line itself.
+    full_text = text
+    for import_line, name in imported_names:
+        # count occurrences of name as whole word, excluding its own import line
+        occurrences = 0
+        for li, line in enumerate(lines):
+            if li == import_line:
+                continue
+            for match in re.finditer(r"\b" + re.escape(name) + r"\b", line):
+                occurrences += 1
+        if occurrences == 0:
+            diagnostics.append(_diag(uri, import_line, 0, len(lines[import_line]), 2, "PW001", f"unused import '{name}'", [1]))
+
+    # Unused variables: simple top-level and local heuristic via declared names.
+    # Track declared variable/const names and check references.
+    declared: list[tuple[int, str]] = []
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        const_match = re.match(r"^const\s+([A-Za-z_][A-Za-z0-9_]*)", stripped)
+        if const_match:
+            declared.append((index, const_match.group(1)))
+            continue
+        var_match = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\s*(?::[^=]+)?\s*(?::=|=)", stripped)
+        if var_match and var_match.group(1) not in KEYWORDS:
+            declared.append((index, var_match.group(1)))
+
+    for decl_line, name in declared:
+        occurrences = 0
+        for li, line in enumerate(lines):
+            if li == decl_line:
+                continue
+            for match in re.finditer(r"\b" + re.escape(name) + r"\b", line):
+                occurrences += 1
+        if occurrences == 0:
+            diagnostics.append(_diag(uri, decl_line, 0, len(lines[decl_line]), 2, "PW002", f"unused variable '{name}'", [1]))
+
+    # Naming convention: functions and variables should be snake_case.
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        fun_match = re.search(r"\bfun\s+([A-Za-z_][A-Za-z0-9_]*)", stripped)
+        if fun_match:
+            name = fun_match.group(1)
+            if name != name.lower() or "-" in name:
+                if not name.islower() or any(c.isupper() for c in name):
+                    diagnostics.append(_diag(uri, index, fun_match.start(1), fun_match.end(1), 3, "PW006", f"function name '{name}' should be snake_case", None))
+        const_match = re.search(r"\bconst\s+([A-Za-z_][A-Za-z0-9_]*)", stripped)
+        if const_match:
+            name = const_match.group(1)
+            if any(c.islower() for c in name) and name != name.upper() and "_" in name:
+                pass
+            # constants should be UPPER_SNAKE_CASE
+            if name != name.upper():
+                diagnostics.append(_diag(uri, index, const_match.start(1), const_match.end(1), 3, "PW006", f"constant name '{name}' should be UPPER_SNAKE_CASE", None))
+
+    # Complexity: function body length and nesting depth.
+    # Simple heuristic: count lines between a fun declaration and its closing brace.
+    i = 0
+    while i < len(lines):
+        if re.search(r"\bfun\s+[A-Za-z_]", lines[i]):
+            start = i
+            depth = 0
+            started = False
+            j = i
+            while j < len(lines):
+                for ch in lines[j]:
+                    if ch == "{":
+                        depth += 1
+                        started = True
+                    elif ch == "}":
+                        depth -= 1
+                if started and depth == 0:
+                    break
+                j += 1
+            body_lines = j - start
+            if body_lines > 50:
+                diagnostics.append(_diag(uri, start, 0, len(lines[start]), 3, "PW008", f"function body too long ({body_lines} lines)", None))
+            # nesting depth
+            max_depth = 0
+            cur = 0
+            for k in range(start, j + 1):
+                for ch in lines[k]:
+                    if ch == "{":
+                        cur += 1
+                        if cur > max_depth:
+                            max_depth = cur
+                    elif ch == "}":
+                        cur -= 1
+            if max_depth > 5:
+                diagnostics.append(_diag(uri, start, 0, len(lines[start]), 3, "PW008", f"nesting too deep ({max_depth})", None))
+            i = j + 1
+            continue
+        i += 1
+
+    # Import order: use statements should be grouped and sorted.
+    use_lines = [(idx, lines[idx].strip()) for idx, line in enumerate(lines) if line.strip().startswith("use ")]
+    if len(use_lines) > 1:
+        names = [l.strip() for _, l in use_lines]
+        if names != sorted(names):
+            diagnostics.append(_diag(uri, use_lines[0][0], 0, len(lines[use_lines[0][0]]), 3, "PW007", "imports are not sorted", None))
+
+    # Duplicate imports
+    seen_imports: set[str] = set()
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("use "):
+            if stripped in seen_imports:
+                diagnostics.append(_diag(uri, idx, 0, len(line), 2, "PW009", "duplicate import", [1]))
+            seen_imports.add(stripped)
+
+    return diagnostics
+
+
 def diagnose(uri: str, text: str) -> None:
     diagnostics: list[dict] = []
     source_path = _source_path(uri)
@@ -181,37 +333,18 @@ def diagnose(uri: str, text: str) -> None:
         parser = Parser(text, source_path=source_path)
         parser.parse()
     except Exception as error:
-        diagnostics.append({
-            "range": {
-                "start": {"line": 0, "character": 0},
-                "end": {"line": 0, "character": 1},
-            },
-            "severity": 1,
-            "source": "powang",
-            "message": str(error),
-        })
+        # Try to extract line info
+        line_no = _line_number(error)
+        diagnostics.append(_diag(uri, line_no, 0, 1, 1, "PW100", str(error)))
     else:
         try:
             for type_error in check_source(text, source_path):
-                diagnostics.append({
-                    "range": {
-                        "start": {"line": _line_number(type_error), "character": 0},
-                        "end": {"line": _line_number(type_error), "character": 1},
-                    },
-                    "severity": 1,
-                    "source": "powang",
-                    "message": str(type_error),
-                })
+                line_no = _line_number(type_error)
+                diagnostics.append(_diag(uri, line_no, 0, 1, 1, "PW101", str(type_error)))
         except Exception as error:  # noqa: BLE001
-            diagnostics.append({
-                "range": {
-                    "start": {"line": 0, "character": 0},
-                    "end": {"line": 0, "character": 1},
-                },
-                "severity": 2,
-                "source": "powang",
-                "message": f"internal checker error: {error}",
-            })
+            diagnostics.append(_diag(uri, 0, 0, 1, 2, "PW102", f"internal checker error: {error}"))
+
+    diagnostics.extend(_lint_document(text, uri))
 
     send({
         "jsonrpc": "2.0",
@@ -775,6 +908,13 @@ def handle_initialize(request_id, params) -> None:
                     "prepareProvider": True,
                 },
                 "documentFormattingProvider": True,
+                "documentRangeFormattingProvider": True,
+                "codeActionProvider": {
+                    "codeActionKinds": ["quickfix", "source", "source.fixAll", "source.organizeImports"],
+                },
+                "executeCommandProvider": {
+                    "commands": ["powang.formatDocument", "powang.organizeImports"],
+                },
                 "inlayHintProvider": True,
                 "foldingRangeProvider": True,
                 "semanticTokensProvider": {
@@ -1310,16 +1450,7 @@ def handle_formatting(request_id, params) -> None:
     uri = text_doc.get("uri")
     text = DOCUMENTS.get(uri, "")
     lines = _lines(text)
-    result = []
-    indent = 0
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith("}"):
-            indent = max(0, indent - 1)
-        result.append("    " * indent + stripped)
-        if stripped.endswith("{"):
-            indent += 1
-    new_text = "\n".join(result)
+    new_text = _format_text(text)
     send({
         "jsonrpc": "2.0",
         "id": request_id,
@@ -1331,6 +1462,262 @@ def handle_formatting(request_id, params) -> None:
             "newText": new_text,
         }],
     })
+
+
+def _format_text(text: str) -> str:
+    lines = _lines(text)
+    result = []
+    indent = 0
+    blank_pending = 0
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            blank_pending += 1
+            continue
+        if stripped.startswith("}"):
+            indent = max(0, indent - 1)
+        # ensure at most two blank lines between top-level blocks
+        if result and stripped.startswith(("fun ", "type ", "const ", "use ", "export ")):
+            # ensure two blank lines before top-level decl
+            while len(result) > 0 and result[-1] == "":
+                result.pop()
+            result.append("")
+            result.append("")
+        if blank_pending:
+            # collapse multiple blanks to one inside
+            result.append("")
+            blank_pending = 0
+        result.append("    " * indent + stripped)
+        if stripped.endswith("{"):
+            indent += 1
+    # final newline
+    new_text = "\n".join(result).rstrip("\n") + "\n"
+    return new_text
+
+
+def handle_range_formatting(request_id, params) -> None:
+    text_doc = params.get("textDocument", {})
+    uri = text_doc.get("uri")
+    text = DOCUMENTS.get(uri, "")
+    rng = params.get("range", {})
+    start_line = rng.get("start", {}).get("line", 0)
+    end_line = rng.get("end", {}).get("line", 0)
+    lines = _lines(text)
+    # Format whole doc then slice changed region lines.
+    formatted = _format_text(text).split("\n")
+    # Build edit replacing selected range with formatted selected lines.
+    selected_original = lines[start_line:end_line + 1]
+    selected_formatted = formatted[start_line:min(end_line + 1, len(formatted))]
+    new_text = "\n".join(selected_formatted)
+    old_text = "\n".join(selected_original)
+    if new_text == old_text:
+        send({"jsonrpc": "2.0", "id": request_id, "result": []})
+        return
+    send({
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "result": [{
+            "range": {
+                "start": {"line": start_line, "character": 0},
+                "end": {"line": end_line, "character": len(lines[end_line]) if end_line < len(lines) else 0},
+            },
+            "newText": new_text,
+        }],
+    })
+
+
+def handle_code_action(request_id, params) -> None:
+    text_doc = params.get("textDocument", {})
+    uri = text_doc.get("uri")
+    text = DOCUMENTS.get(uri, "")
+    lines = _lines(text)
+    context = params.get("context", {})
+    diagnostics = context.get("diagnostics", [])
+    rng = params.get("range", {})
+    actions = []
+
+    # Quick fixes for removable diagnostics
+    for diag in diagnostics:
+        code = diag.get("code")
+        r = diag.get("range", {})
+        start = r.get("start", {})
+        end = r.get("end", {})
+        sl = start.get("line", 0)
+        sc = start.get("character", 0)
+        el = end.get("line", 0)
+        ec = end.get("character", 0)
+        if code in ("PW001", "PW002", "PW004", "PW009"):
+            # remove the whole line
+            line_text = lines[sl] if sl < len(lines) else ""
+            actions.append({
+                "title": f"Remove line ({code})",
+                "kind": "quickfix",
+                "diagnostics": [diag],
+                "edit": {
+                    "changes": {
+                        uri: [{
+                            "range": {
+                                "start": {"line": sl, "character": 0},
+                                "end": {"line": sl + 1, "character": 0},
+                            },
+                            "newText": "",
+                        }]
+                    }
+                },
+            })
+        if code == "PW003":
+            actions.append({
+                "title": "Wrap line",
+                "kind": "quickfix",
+                "diagnostics": [diag],
+                "command": {"title": "format", "command": "powang.formatDocument", "arguments": [uri]},
+            })
+
+    # Organize imports
+    actions.append({
+        "title": "Organize imports",
+        "kind": "source.organizeImports",
+        "edit": {
+            "changes": {
+                uri: _organize_imports_edits(text, uri)
+            }
+        },
+    })
+
+    # Fix all safe
+    actions.append({
+        "title": "Fix all auto-fixable problems",
+        "kind": "source.fixAll",
+        "edit": {
+            "changes": {
+                uri: _fix_all_edits(text, uri)
+            }
+        },
+    })
+
+    # Apply formatting
+    actions.append({
+        "title": "Format document",
+        "kind": "source",
+        "command": {"title": "format", "command": "powang.formatDocument", "arguments": [uri]},
+    })
+
+    # Disable rule comment for first diagnostic
+    if diagnostics:
+        code = diagnostics[0].get("code")
+        sl = diagnostics[0].get("range", {}).get("start", {}).get("line", 0)
+        actions.append({
+            "title": f"Disable {code} for this line",
+            "kind": "quickfix",
+            "diagnostics": [diagnostics[0]],
+            "edit": {
+                "changes": {
+                    uri: [{
+                        "range": {
+                            "start": {"line": sl, "character": len(lines[sl]) if sl < len(lines) else 0},
+                            "end": {"line": sl, "character": len(lines[sl]) if sl < len(lines) else 0},
+                        },
+                        "newText": f"  ## noqa: {code}",
+                    }]
+                }
+            },
+        })
+
+    send({"jsonrpc": "2.0", "id": request_id, "result": actions})
+
+
+def _organize_imports_edits(text: str, uri: str) -> list[dict]:
+    lines = _lines(text)
+    use_indices = [i for i, l in enumerate(lines) if l.strip().startswith("use ")]
+    if not use_indices:
+        return []
+    # collect import lines, sort, replace block
+    block_start = use_indices[0]
+    block_end = use_indices[-1]
+    import_lines = [lines[i].strip() for i in use_indices]
+    import_lines_sorted = sorted(set(import_lines))
+    # remove original import lines (mark empty)
+    new_lines = list(lines)
+    for i in use_indices:
+        new_lines[i] = None  # type: ignore
+    # rebuild
+    rebuilt = [l for l in new_lines if l is not None]
+    # insert sorted imports at block_start position (approx)
+    # Simpler: produce full new text
+    # We'll just replace range block_start..block_end
+    replacement = "\n".join(import_lines_sorted)
+    return [{
+        "range": {
+            "start": {"line": block_start, "character": 0},
+            "end": {"line": block_end, "character": len(lines[block_end])},
+        },
+        "newText": replacement,
+    }]
+
+
+def _fix_all_edits(text: str, uri: str) -> list[dict]:
+    # Remove lines with unused imports/vars and trailing whitespace; sort imports.
+    lines = _lines(text)
+    to_remove: set[int] = set()
+    # unused imports
+    imported_names = []
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        m = re.match(r"^use\s+(?:\"[^\"]+\"|([A-Za-z_][A-Za-z0-9_]*))(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*|\*))?", stripped)
+        if m:
+            name = m.group(2) or m.group(1)
+            if name and name != "*":
+                imported_names.append((index, name))
+    for import_line, name in imported_names:
+        occurrences = 0
+        for li, line in enumerate(lines):
+            if li == import_line:
+                continue
+            occurrences += len(re.findall(r"\b" + re.escape(name) + r"\b", line))
+        if occurrences == 0:
+            to_remove.add(import_line)
+    # unused vars
+    declared = []
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        cm = re.match(r"^const\s+([A-Za-z_][A-Za-z0-9_]*)", stripped)
+        if cm:
+            declared.append((index, cm.group(1)))
+            continue
+        vm = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\s*(?::[^=]+)?\s*(?::=|=)", stripped)
+        if vm and vm.group(1) not in KEYWORDS:
+            declared.append((index, vm.group(1)))
+    for decl_line, name in declared:
+        occurrences = 0
+        for li, line in enumerate(lines):
+            if li == decl_line:
+                continue
+            occurrences += len(re.findall(r"\b" + re.escape(name) + r"\b", line))
+        if occurrences == 0:
+            to_remove.add(decl_line)
+
+    # trailing whitespace fix: edit in place (handled by line replacement)
+    edits = []
+    # Remove lines from bottom to top
+    for idx in sorted(to_remove, reverse=True):
+        edits.append({
+            "range": {
+                "start": {"line": idx, "character": 0},
+                "end": {"line": idx + 1, "character": 0},
+            },
+            "newText": "",
+        })
+    # trailing whitespace edits
+    for idx, line in enumerate(lines):
+        if line != line.rstrip(" \t") and idx not in to_remove:
+            edits.append({
+                "range": {
+                    "start": {"line": idx, "character": len(line.rstrip(" \t"))},
+                    "end": {"line": idx, "character": len(line)},
+                },
+                "newText": "",
+            })
+    return edits
 
 
 def _parameters_from_signature(signature: str) -> list[str]:
@@ -1889,6 +2276,21 @@ def dispatch(message: dict) -> bool:
         handle_rename(request_id, params)
     elif method == "textDocument/formatting":
         handle_formatting(request_id, params)
+    elif method == "textDocument/rangeFormatting":
+        handle_range_formatting(request_id, params)
+    elif method == "textDocument/codeAction":
+        handle_code_action(request_id, params)
+    elif method == "workspace/executeCommand":
+        cmd = params.get("command")
+        if cmd == "powang.formatDocument":
+            uri = (params.get("arguments") or [""])[0]
+            text = DOCUMENTS.get(uri, "")
+            new_text = _format_text(text)
+            DOCUMENTS[uri] = new_text
+            diagnose(uri, new_text)
+            send({"jsonrpc": "2.0", "id": request_id, "result": None})
+        else:
+            send({"jsonrpc": "2.0", "id": request_id, "result": None})
     elif method == "textDocument/inlayHint":
         handle_inlay_hint(request_id, params)
     elif method == "textDocument/foldingRange":
