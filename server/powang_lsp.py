@@ -534,6 +534,19 @@ def _infer_expression_type(expr: str, by_name: dict[str, list[dict]]) -> str:
         return "int"
     if re.fullmatch(r"-?\d+\.\d+(?:[eE][+-]?\d+)?", expr):
         return "num"
+    if expr.startswith(".["):
+        inner = expr[2:-1].strip() if expr.endswith("]") else expr[2:].strip()
+        if not inner:
+            return "tup"
+        elements = _split_top_level(inner, ",")
+        if len(elements) == 1 and " " in elements[0]:
+            elements = _split_top_level(inner, " ")
+        types = [_infer_expression_type(element, by_name) for element in elements if element.strip()]
+        if types and all(element_type == types[0] for element_type in types):
+            return f"tup[{types[0]}, ...]"
+        if types:
+            return "tup[" + ", ".join(types) + "]"
+        return "tup"
     if expr.startswith("["):
         if ">>" in expr:
             return "map"
@@ -971,7 +984,7 @@ def handle_initialize(request_id, params) -> None:
             },
             "serverInfo": {
                 "name": "powang-lsp",
-                "version": "0.10.0",
+                "version": "0.10.1",
             },
         },
     })
