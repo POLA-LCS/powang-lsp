@@ -40,7 +40,7 @@ BUILTINS = [
 ]
 
 BUILTIN_TYPES = {
-    "some", "any", "int", "num", "boolean", "str", "arr", "map",
+    "some", "any", "int", "num", "bool", "str", "arr", "map",
     "function", "file", "task",
 }
 
@@ -79,7 +79,7 @@ BUILTIN_DOCS: dict[str, tuple[str, str]] = {
     "open": ("open(path, mode?) -> file", "Opens a file."),
     "write": ("write(file, text) -> some", "Writes text to a file."),
     "read": ("read(file) -> str", "Reads a file."),
-    "close": ("close(file) -> boolean", "Closes a file."),
+    "close": ("close(file) -> bool", "Closes a file."),
     "wait": ("wait(task, timeout_ms?) -> some", "Waits for a task and returns its result."),
     "cancel": ("cancel(task) -> some", "Cancels a task."),
     "task_status": ("task_status(task) -> str", "Returns the status of a task."),
@@ -90,7 +90,7 @@ BUILTIN_TYPE_DOCS: dict[str, str] = {
     "any": "Alias for some. The gradual unknown type. It accepts any value.",
     "int": "A whole number.",
     "num": "A floating-point number.",
-    "boolean": "Either true or false.",
+    "bool": "Either true or false.",
     "str": "A sequence of characters.",
     "arr": "An ordered collection. Use arr[element] for a typed arr.",
     "map": "A key-value collection.",
@@ -122,8 +122,8 @@ KEYWORD_DOCS: dict[str, str] = {
 }
 
 CONSTANT_DOCS: dict[str, str] = {
-    "true": "The boolean true value.",
-    "false": "The boolean false value.",
+    "true": "The bool true value.",
+    "false": "The bool false value.",
     "nova": "The absence of a value. It is falsey in conditions.",
 }
 
@@ -527,7 +527,7 @@ def _infer_expression_type(expr: str, by_name: dict[str, list[dict]]) -> str:
     if expr.startswith('$"') or expr.startswith('"'):
         return "str"
     if expr in {"true", "false"}:
-        return "boolean"
+        return "bool"
     if expr == "nova":
         return "nova"
     if re.fullmatch(r"-?\d+", expr):
