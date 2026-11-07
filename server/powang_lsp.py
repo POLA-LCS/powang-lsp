@@ -274,32 +274,62 @@ CONSTANT_DOCS: dict[str, str] = {
 
 DOCUMENTS: dict[str, str] = {}
 WORKSPACE_ROOT: str | None = None
+MAX_MESSAGE_BYTES = 16 * 1024 * 1024
+SHUTDOWN_REQUESTED = False
 
 
-def send(message: dict) -> None:
+class LSPProtocolError(Exception):
+    """Raised when a JSON-RPC frame cannot be read safely."""
+
+
+def send(message: dict, stream=None) -> bool:
+    if stream is None:
+        stream = sys.stdout.buffer
     body = json.dumps(message, ensure_ascii=False).encode("utf-8")
-    sys.stdout.buffer.write(b"Content-Length: " + str(len(body)).encode("ascii") + b"\r\n\r\n")
-    sys.stdout.buffer.write(body)
-    sys.stdout.buffer.flush()
+    try:
+        stream.write(b"Content-Length: " + str(len(body)).encode("ascii") + b"\r\n\r\n")
+        stream.write(body)
+        stream.flush()
+    except (BrokenPipeError, OSError):
+        return False
+    return True
 
 
-def read_message() -> dict | None:
+def read_message(stream=None) -> dict | None:
+    if stream is None:
+        stream = sys.stdin.buffer
     headers: dict[str, str] = {}
     while True:
-        line = sys.stdin.buffer.readline()
+        line = stream.readline()
         if not line:
             return None
-        if line in (b"\r\n", b"\n", b""):
+        if line in (b"\r\n", b"\n"):
             break
-        key, _, value = line.decode("ascii", errors="replace").partition(":")
+        try:
+            key, separator, value = line.decode("ascii").partition(":")
+        except UnicodeDecodeError as error:
+            raise LSPProtocolError(f"invalid header encoding: {error}") from error
+        if not separator:
+            raise LSPProtocolError(f"malformed header: {line!r}")
         headers[key.strip().lower()] = value.strip()
-    length = int(headers.get("content-length", "0"))
+    raw_length = headers.get("content-length")
+    if raw_length is None:
+        raise LSPProtocolError("missing Content-Length header")
+    try:
+        length = int(raw_length)
+    except ValueError as error:
+        raise LSPProtocolError(f"invalid Content-Length: {raw_length!r}") from error
     if length <= 0:
-        return None
-    body = sys.stdin.buffer.read(length)
-    if not body:
-        return None
-    return json.loads(body.decode("utf-8"))
+        raise LSPProtocolError(f"invalid Content-Length: {length}")
+    if length > MAX_MESSAGE_BYTES:
+        raise LSPProtocolError(f"message too large: {length} bytes")
+    body = stream.read(length)
+    if len(body) < length:
+        raise LSPProtocolError("truncated message body")
+    try:
+        return json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise LSPProtocolError(f"invalid JSON body: {error}") from error
 
 
 def _line_number(error: Exception) -> int:
@@ -3239,15 +3269,26 @@ def handle_semantic_tokens(request_id, params) -> None:
 
 
 def dispatch(message: dict) -> bool:
+    global SHUTDOWN_REQUESTED
     method = message.get("method")
     request_id = message.get("id")
     params = message.get("params", {})
+
+    if SHUTDOWN_REQUESTED and method != "exit":
+        if request_id is not None:
+            send({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": {"code": -32600, "message": "server is shutting down"},
+            })
+        return True
 
     if method == "initialize":
         handle_initialize(request_id, params)
     elif method == "initialized":
         pass
     elif method == "shutdown":
+        SHUTDOWN_REQUESTED = True
         send({"jsonrpc": "2.0", "id": request_id, "result": None})
     elif method == "exit":
         return False
@@ -3322,9 +3363,17 @@ def dispatch(message: dict) -> bool:
     return True
 
 
-def main() -> None:
+def main() -> int:
     while True:
-        message = read_message()
+        try:
+            message = read_message()
+        except LSPProtocolError as error:
+            send({
+                "jsonrpc": "2.0",
+                "method": "window/logMessage",
+                "params": {"type": 1, "message": f"powang-lsp protocol error: {error}"},
+            })
+            return 1
         if message is None:
             break
         request_id = message.get("id")
@@ -3346,7 +3395,8 @@ def main() -> None:
             keep_running = True
         if not keep_running:
             break
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

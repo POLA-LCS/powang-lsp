@@ -6,6 +6,8 @@
 
 - Removed document formatting, range formatting, organize imports and fix-all
   actions until a token-aware formatter and safe import editor exist.
+- Hardened JSON-RPC framing with header validation, frame size limits, broken
+  pipe handling and a post-shutdown request guard.
 
 ## 0.14.2
 
