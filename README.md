@@ -22,7 +22,6 @@ Syntax highlighting, diagnostics and completion for the [Powang](https://github.
 - **Native method completion and hover** for `str`, `arr`, `map`, `tup` and `set`
 - **ErrorLens compatible diagnostics** with precise ranges, codes, sources and related information
 - **Folding ranges** for blocks and comments
-- **Formatting**
 - **Language configuration**: brackets, comments, indentation rules, auto-closing pairs
 
 ## Colors
@@ -91,7 +90,7 @@ arguments to the server.
 - Provides hover, goto definition and declaration.
 - Provides document and workspace symbols.
 - Provides find references and rename.
-- Provides formatting and semantic tokens.
+- Provides semantic tokens.
 - Shows constructor parameter names for positional `Type.[...]` calls.
 - Suggests `[+]`, `[-]`, `|` and `constructor` snippets inside type declarations.
 - Offers quick fixes to convert positional construction to named arguments, change

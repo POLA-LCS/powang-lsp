@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Removed document formatting, range formatting, organize imports and fix-all
+  actions until a token-aware formatter and safe import editor exist.
+
 ## 0.14.2
 
 ### Added

@@ -481,22 +481,8 @@ function activate(context) {
         },
     });
 
-    const formattingProvider = vscode.languages.registerDocumentFormattingEditProvider('powang', {
-        provideDocumentFormattingEdits(document) {
-            return protocol.request('textDocument/formatting', {
-                textDocument: { uri: document.uri.toString() },
-            }).then(result => {
-                if (!Array.isArray(result)) return [];
-                return result.map(e => new vscode.TextEdit(new vscode.Range(e.range.start.line, e.range.start.character, e.range.end.line, e.range.end.character), e.newText));
-            }).catch(() => []);
-        },
-    });
-
     const codeActionKindMap = {
         quickfix: vscode.CodeActionKind.QuickFix,
-        source: vscode.CodeActionKind.Source,
-        'source.fixAll': vscode.CodeActionKind.SourceFixAll,
-        'source.organizeImports': vscode.CodeActionKind.SourceOrganizeImports,
     };
 
     const codeActionProvider = vscode.languages.registerCodeActionsProvider('powang', {
@@ -678,7 +664,6 @@ function activate(context) {
         workspaceSymbolProvider,
         referenceProvider,
         renameProvider,
-        formattingProvider,
         codeActionProvider,
         inlayHintProvider,
         foldingProvider,

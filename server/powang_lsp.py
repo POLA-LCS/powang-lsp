@@ -1884,13 +1884,8 @@ def handle_initialize(request_id, params) -> None:
                 "renameProvider": {
                     "prepareProvider": True,
                 },
-                "documentFormattingProvider": True,
-                "documentRangeFormattingProvider": True,
                 "codeActionProvider": {
-                    "codeActionKinds": ["quickfix", "source", "source.fixAll", "source.organizeImports"],
-                },
-                "executeCommandProvider": {
-                    "commands": ["powang.formatDocument", "powang.organizeImports"],
+                    "codeActionKinds": ["quickfix"],
                 },
                 "inlayHintProvider": True,
                 "foldingRangeProvider": True,
@@ -2591,35 +2586,6 @@ def handle_code_action(request_id, params) -> None:
                 },
             })
 
-
-    # Organize imports
-    actions.append({
-        "title": "Organize imports",
-        "kind": "source.organizeImports",
-        "edit": {
-            "changes": {
-                uri: _organize_imports_edits(text, uri)
-            }
-        },
-    })
-
-    # Fix all safe
-    actions.append({
-        "title": "Fix all auto-fixable problems",
-        "kind": "source.fixAll",
-        "edit": {
-            "changes": {
-                uri: _fix_all_edits(text, uri)
-            }
-        },
-    })
-
-    # Apply formatting
-    actions.append({
-        "title": "Format document",
-        "kind": "source",
-        "command": {"title": "format", "command": "powang.formatDocument", "arguments": [uri]},
-    })
 
     # Disable rule comment for first diagnostic
     if diagnostics:
@@ -3338,23 +3304,8 @@ def dispatch(message: dict) -> bool:
         handle_prepare_rename(request_id, params)
     elif method == "textDocument/rename":
         handle_rename(request_id, params)
-    elif method == "textDocument/formatting":
-        handle_formatting(request_id, params)
-    elif method == "textDocument/rangeFormatting":
-        handle_range_formatting(request_id, params)
     elif method == "textDocument/codeAction":
         handle_code_action(request_id, params)
-    elif method == "workspace/executeCommand":
-        cmd = params.get("command")
-        if cmd == "powang.formatDocument":
-            uri = (params.get("arguments") or [""])[0]
-            text = DOCUMENTS.get(uri, "")
-            new_text = _format_text(text)
-            DOCUMENTS[uri] = new_text
-            diagnose(uri, new_text)
-            send({"jsonrpc": "2.0", "id": request_id, "result": None})
-        else:
-            send({"jsonrpc": "2.0", "id": request_id, "result": None})
     elif method == "textDocument/inlayHint":
         handle_inlay_hint(request_id, params)
     elif method == "textDocument/foldingRange":
