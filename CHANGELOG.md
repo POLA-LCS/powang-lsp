@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.14.3
 
 ### Changed
 
@@ -11,6 +11,9 @@
 - The client now waits for the initialize response before sending `initialized`
   and `didOpen`, advertises the semantic token legend, answers server requests,
   and rejects pending requests when the server stops.
+- Removed stale vendored source files and added a drift check against the
+  pinned powang source tree.
+- CI now runs server tests, the smoke test, version checks and VSIX inspection.
 
 ## 0.14.2
 

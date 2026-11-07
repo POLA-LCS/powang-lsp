@@ -5,6 +5,7 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
+  workflow_call:
 
 jobs:
   check:
@@ -26,5 +27,25 @@ jobs:
           node --check protocol.js
           python -m py_compile server/powang_lsp.py
 
+      - name: Server and protocol tests
+        run: |
+          python -m unittest discover -s tests
+          node --test tests/protocol.test.js
+
+      - name: LSP smoke
+        run: python lsp_smoke.py
+
+      - name: Vendored source drift
+        run: |
+          git clone https://github.com/POLA-LCS/powang.git /tmp/powang-src
+          git -C /tmp/powang-src checkout "$(cat .github/powang-src-pin.txt)"
+          python scripts/check_vendored_src.py --reference /tmp/powang-src/src
+
+      - name: Version consistency
+        run: python scripts/check_versions.py
+
       - name: Package
         run: npx vsce package --no-dependencies
+
+      - name: Inspect VSIX
+        run: python scripts/check_vsix.py powang-lsp-*.vsix
