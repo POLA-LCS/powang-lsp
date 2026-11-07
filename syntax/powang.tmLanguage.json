@@ -33,6 +33,14 @@
     "declaration": {
       "patterns": [
         {
+          "match": "\\b(fun)\\s+(?:(this)\\.|\\.)\\s*([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.control.powang" },
+            "2": { "name": "variable.language.this.powang" },
+            "3": { "name": "entity.name.function.powang" }
+          }
+        },
+        {
           "match": "\\b(fun)\\s+([A-Za-z_][A-Za-z0-9_]*)",
           "captures": {
             "1": { "name": "keyword.control.powang" },
@@ -88,17 +96,19 @@
       ]
     },
     "builtin-type": {
-      "match": "\\b(any|int|num|bool|str|arr|map|function|file|task)\\b",
+      "match": "\\b(any|int|num|bool|str|arr|tup|map|set|handle|function|file|task|error)\\b",
       "name": "support.type.primitive.powang"
     },
     "builtin": {
-      "match": "\\b(print|println|format|printf|error|fail|input|inputf|typeof|size|open|write|read|close|system|wait|cancel|task_status)\\b",
+      "match": "\\b(print|println|format|printf|error|fail|input|inputf|typeof|typedeep|size|open|write|read|close|system|wait|cancel|task_status)\\b",
       "name": "support.function.builtin.powang"
     },
     "operator": {
       "patterns": [
         { "name": "keyword.operator.logical.powang", "match": "&&|\\|\\||::|!:" },
-        { "name": "keyword.operator.pipeline.powang", "match": "\\|>" },
+        { "name": "keyword.operator.reference-pipeline.powang", "match": "&>" },
+        { "name": "keyword.operator.pipeline.powang", "match": ":>|\\|>" },
+        { "name": "keyword.operator.constructor.powang", "match": "\\[\\+\\]|\\[\\-\\]|\\|" },
         { "name": "keyword.operator.null.powang", "match": "\\?\\.|\\?\\?" },
         { "name": "keyword.operator.comparison.powang", "match": "==|!=|<=|>=|<|>" },
         { "name": "keyword.operator.assignment.powang", "match": "\\+=|-=|\\*=|/=|=" },

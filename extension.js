@@ -8,24 +8,64 @@ let diagnosticCollection = null;
 let isDisposing = false;
 const protocol = createProtocol();
 
+function toDiagnosticSeverity(severity) {
+    return severity === 1 ? vscode.DiagnosticSeverity.Error :
+        severity === 2 ? vscode.DiagnosticSeverity.Warning :
+        severity === 3 ? vscode.DiagnosticSeverity.Information :
+        vscode.DiagnosticSeverity.Hint;
+}
+
+function toDiagnosticTag(tag) {
+    return tag === 1 ? vscode.DiagnosticTag.Unnecessary :
+        tag === 2 ? vscode.DiagnosticTag.Deprecated :
+        undefined;
+}
+
+function toRange(range) {
+    return new vscode.Range(
+        range.start.line, range.start.character,
+        range.end.line, range.end.character
+    );
+}
+
+function toDiagnostic(d) {
+    const diag = new vscode.Diagnostic(toRange(d.range), d.message, toDiagnosticSeverity(d.severity));
+    if (d.code !== undefined) diag.code = d.code;
+    if (d.source) diag.source = d.source;
+    if (Array.isArray(d.tags)) {
+        diag.tags = d.tags.map(toDiagnosticTag).filter(tag => tag !== undefined);
+    }
+    if (Array.isArray(d.relatedInformation)) {
+        diag.relatedInformation = d.relatedInformation
+            .filter(info => info && info.location)
+            .map(info => new vscode.DiagnosticRelatedInformation(
+                new vscode.Location(vscode.Uri.parse(info.location.uri), toRange(info.location.range)),
+                info.message || ''
+            ));
+    }
+    return diag;
+}
+
+function toRawDiagnostic(diag) {
+    return {
+        range: {
+            start: { line: diag.range.start.line, character: diag.range.start.character },
+            end: { line: diag.range.end.line, character: diag.range.end.character },
+        },
+        severity: diag.severity === vscode.DiagnosticSeverity.Error ? 1 :
+            diag.severity === vscode.DiagnosticSeverity.Warning ? 2 :
+            diag.severity === vscode.DiagnosticSeverity.Information ? 3 : 4,
+        code: diag.code,
+        source: diag.source,
+        message: diag.message,
+    };
+}
+
 function handleMessage(message) {
     if (protocol.resolvePending(message)) return;
     if (message.method === 'textDocument/publishDiagnostics') {
         const uri = message.params.uri;
-        const diagnostics = (message.params.diagnostics || []).map(d => {
-            const severity = d.severity === 1 ? vscode.DiagnosticSeverity.Error :
-                            d.severity === 2 ? vscode.DiagnosticSeverity.Warning :
-                            d.severity === 3 ? vscode.DiagnosticSeverity.Information :
-                            vscode.DiagnosticSeverity.Hint;
-            const range = new vscode.Range(
-                d.range.start.line, d.range.start.character,
-                d.range.end.line, d.range.end.character
-            );
-            const diag = new vscode.Diagnostic(range, d.message, severity);
-            if (d.code !== undefined) diag.code = d.code;
-            if (d.source) diag.source = d.source;
-            return diag;
-        });
+        const diagnostics = (message.params.diagnostics || []).map(toDiagnostic);
         diagnosticCollection.set(vscode.Uri.parse(uri), diagnostics);
     }
 }
@@ -109,7 +149,7 @@ function startServer(context) {
         capabilities: {
             textDocument: {
                 synchronization: { didSave: true, willSave: false, willSaveWaitUntil: false },
-                completion: { completionItem: { snippetSupport: false } },
+                completion: { completionItem: { snippetSupport: true } },
                 hover: { contentFormat: ['plaintext', 'markdown'] },
                 definition: { linkSupport: false },
                 documentSymbol: { hierarchicalDocumentSymbolSupport: true },
@@ -257,12 +297,13 @@ function activate(context) {
                             ci.insertTextFormat = vscode.InsertTextFormat.Snippet;
                         }
                     }
+                    if (item.filterText) ci.filterText = item.filterText;
                     if (item.sortText) ci.sortText = item.sortText;
                     return ci;
                 });
             }).catch(() => []);
         },
-    }, '.', ':', '@', '&');
+    }, '.', ':', '@', '&', '|', '[', '+', '-');
 
     const hoverProvider = vscode.languages.registerHoverProvider('powang', {
         provideHover(document, position) {
@@ -451,6 +492,57 @@ function activate(context) {
         },
     });
 
+    const codeActionKindMap = {
+        quickfix: vscode.CodeActionKind.QuickFix,
+        source: vscode.CodeActionKind.Source,
+        'source.fixAll': vscode.CodeActionKind.SourceFixAll,
+        'source.organizeImports': vscode.CodeActionKind.SourceOrganizeImports,
+    };
+
+    const codeActionProvider = vscode.languages.registerCodeActionsProvider('powang', {
+        provideCodeActions(document, range, context) {
+            return protocol.request('textDocument/codeAction', {
+                textDocument: { uri: document.uri.toString() },
+                range: {
+                    start: { line: range.start.line, character: range.start.character },
+                    end: { line: range.end.line, character: range.end.character },
+                },
+                context: {
+                    diagnostics: (context.diagnostics || []).map(toRawDiagnostic),
+                },
+            }).then(result => {
+                if (!Array.isArray(result)) return [];
+                return result.map(item => {
+                    const action = new vscode.CodeAction(
+                        item.title,
+                        codeActionKindMap[item.kind] || vscode.CodeActionKind.QuickFix
+                    );
+                    if (item.edit && item.edit.changes) {
+                        const edit = new vscode.WorkspaceEdit();
+                        Object.keys(item.edit.changes).forEach(uri => {
+                            item.edit.changes[uri].forEach(change => {
+                                edit.replace(
+                                    vscode.Uri.parse(uri),
+                                    toRange(change.range),
+                                    change.newText
+                                );
+                            });
+                        });
+                        action.edit = edit;
+                    }
+                    if (item.command) {
+                        action.command = {
+                            title: item.command.title || item.title,
+                            command: item.command.command,
+                            arguments: item.command.arguments || [],
+                        };
+                    }
+                    return action;
+                });
+            }).catch(() => []);
+        },
+    });
+
     const signatureProvider = vscode.languages.registerSignatureHelpProvider('powang', {
         provideSignatureHelp(document, position) {
             return protocol.request('textDocument/signatureHelp', {
@@ -587,6 +679,7 @@ function activate(context) {
         referenceProvider,
         renameProvider,
         formattingProvider,
+        codeActionProvider,
         inlayHintProvider,
         foldingProvider,
         semanticProvider

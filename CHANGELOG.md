@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.14.2
+
+### Added
+
+- Token and error source positions for diagnostics.
+- Constructor inlay hints for positional `Type.[...]` calls.
+- Inline completion for type access defaults, constructor members and
+  constructor bodies.
+- Code actions for named constructor arguments, member access and missing
+  constructor arguments.
+- ErrorLens-compatible diagnostics with `source`, `code`,
+  `relatedInformation` and standard publishing on open, change, save and close.
+- Native method completion, hover and signature help for `str`, `arr`, `map`,
+  `tup`, `set`, `file` and `task`.
+- Static and instance method completion and highlighting for user types.
+- Set type documentation and syntax highlighting for `set`.
+- Syntax highlighting and semantic tokens for `&>`.
+- Improved inference for native methods, pipelines, sets and empty literals.
+
+### Changed
+
+- Bundled `src/` synced with powang 0.8.0.
+- Document index tracks brace depth and type member depth.
+- Completion and hover documentation include `typedeep`.
+
+### Fixed
+
+- Code actions are registered in the VS Code client.
+- Diagnostics map `relatedInformation` and `tags` into VS Code.
+- Constructor hints, completion and code actions skip strings and comments.
+- Completion snippets no longer duplicate an existing `|`, `+` or `-`.
+- Access actions respect the type access default.
+- Add-missing and convert-to-named actions produce valid calls.
+- Built-in and native member diagnostics carry parser source positions.
+
 ## 0.7.0
 
 ### Changed

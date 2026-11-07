@@ -16,7 +16,11 @@ Syntax highlighting, diagnostics and completion for the [Powang](https://github.
 - **Go to definition, declaration and type definition**
 - **Document and workspace symbols** with type members and hierarchy
 - **Find references, document highlights and rename** with prepare support
-- **Inlay hints** for inferred variable types
+- **Inlay hints** for inferred variable types and constructor parameter names
+- **Inline completion** for type access defaults, constructor members and constructor bodies
+- **Code actions** for named constructor arguments, access levels and missing arguments
+- **Native method completion and hover** for `str`, `arr`, `map`, `tup` and `set`
+- **ErrorLens compatible diagnostics** with precise ranges, codes, sources and related information
 - **Folding ranges** for blocks and comments
 - **Formatting**
 - **Language configuration**: brackets, comments, indentation rules, auto-closing pairs
@@ -88,6 +92,12 @@ arguments to the server.
 - Provides document and workspace symbols.
 - Provides find references and rename.
 - Provides formatting and semantic tokens.
+- Shows constructor parameter names for positional `Type.[...]` calls.
+- Suggests `[+]`, `[-]`, `|` and `constructor` snippets inside type declarations.
+- Offers quick fixes to convert positional construction to named arguments, change
+  member access and add a missing constructor argument.
+- Publishes every warning and error through standard diagnostics so ErrorLens renders
+  them inline.
 
 ## Links
 
