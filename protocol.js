@@ -5,6 +5,13 @@ function createProtocol() {
     let buffer = Buffer.alloc(0);
 
     function setProcess(p) {
+        if (p === null) {
+            for (const entry of pending.values()) {
+                clearTimeout(entry.timer);
+                entry.reject(new Error('LSP server stopped'));
+            }
+            pending.clear();
+        }
         proc = p;
         buffer = Buffer.alloc(0);
     }
@@ -16,18 +23,27 @@ function createProtocol() {
         proc.stdin.write(Buffer.concat([header, body]));
     }
 
-    function request(method, params) {
+    function request(method, params, options = {}) {
         const id = ++messageId;
+        const timeout = options.timeout ?? 2000;
         return new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
                 if (pending.has(id)) {
                     pending.delete(id);
                     reject(new Error('LSP request timed out'));
                 }
-            }, 2000);
+            }, timeout);
             pending.set(id, { resolve, reject, timer });
             send({ jsonrpc: '2.0', id, method, params });
         });
+    }
+
+    function respond(id, result) {
+        send({ jsonrpc: '2.0', id, result });
+    }
+
+    function respondError(id, code, message) {
+        send({ jsonrpc: '2.0', id, error: { code, message } });
     }
 
     function resolvePending(message) {
@@ -75,7 +91,7 @@ function createProtocol() {
         return messages;
     }
 
-    return { setProcess, send, request, resolvePending, appendChunk, pending };
+    return { setProcess, send, request, respond, respondError, resolvePending, appendChunk, pending };
 }
 
 module.exports = { createProtocol };

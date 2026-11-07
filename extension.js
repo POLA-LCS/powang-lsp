@@ -8,6 +8,25 @@ let diagnosticCollection = null;
 let isDisposing = false;
 const protocol = createProtocol();
 
+const SEMANTIC_TOKEN_TYPES = [
+    'namespace',
+    'type',
+    'parameter',
+    'variable',
+    'property',
+    'function',
+    'method',
+    'macro',
+    'keyword',
+    'comment',
+    'string',
+    'number',
+    'operator',
+    'builtin',
+    'builtinType',
+    'constant',
+];
+
 function toDiagnosticSeverity(severity) {
     return severity === 1 ? vscode.DiagnosticSeverity.Error :
         severity === 2 ? vscode.DiagnosticSeverity.Warning :
@@ -66,7 +85,23 @@ function handleMessage(message) {
     if (message.method === 'textDocument/publishDiagnostics') {
         const uri = message.params.uri;
         const diagnostics = (message.params.diagnostics || []).map(toDiagnostic);
-        diagnosticCollection.set(vscode.Uri.parse(uri), diagnostics);
+        if (diagnosticCollection) {
+            diagnosticCollection.set(vscode.Uri.parse(uri), diagnostics);
+        }
+        return;
+    }
+    if (message.method === 'window/logMessage') {
+        console.log('Powang LSP:', message.params?.message);
+        return;
+    }
+    if (message.id !== undefined && message.method) {
+        if (message.method === 'workspace/configuration') {
+            protocol.respond(message.id, []);
+        } else if (message.method === 'workspace/applyEdit') {
+            protocol.respond(message.id, { applied: false });
+        } else {
+            protocol.respondError(message.id, -32601, `method not found: ${message.method}`);
+        }
     }
 }
 
@@ -79,7 +114,7 @@ function stopServer() {
     }
 }
 
-function startServer(context) {
+async function startServer(context) {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     const config = vscode.workspace.getConfiguration('powang.server');
     const pythonPath = config.get('pythonPath', 'python');
@@ -143,54 +178,70 @@ function startServer(context) {
     });
 
     const rootUri = workspaceFolder ? vscode.Uri.file(workspaceFolder).toString() : null;
-    protocol.request('initialize', {
-        processId: process.pid,
-        rootUri: rootUri,
-        capabilities: {
-            textDocument: {
-                synchronization: { didSave: true, willSave: false, willSaveWaitUntil: false },
-                completion: { completionItem: { snippetSupport: true } },
-                hover: { contentFormat: ['plaintext', 'markdown'] },
-                definition: { linkSupport: false },
-                documentSymbol: { hierarchicalDocumentSymbolSupport: true },
-                rename: { prepareSupport: false },
-                semanticTokens: { requests: { full: true }, tokenTypes: [], tokenModifiers: [], formats: ['relative'] },
-            },
-            workspace: { symbol: {} },
-        },
-    }).catch(() => {});
-
-    setTimeout(() => {
-        protocol.send({ jsonrpc: '2.0', method: 'initialized', params: {} });
-        vscode.workspace.textDocuments.forEach(doc => {
-            if (doc.languageId === 'powang') {
-                protocol.send({
-                    jsonrpc: '2.0',
-                    method: 'textDocument/didOpen',
-                    params: {
-                        textDocument: {
-                            uri: doc.uri.toString(),
-                            languageId: 'powang',
-                            version: doc.version,
-                            text: doc.getText(),
-                        },
+    try {
+        await protocol.request('initialize', {
+            processId: process.pid,
+            rootUri: rootUri,
+            capabilities: {
+                textDocument: {
+                    synchronization: { didSave: true, willSave: false, willSaveWaitUntil: false },
+                    completion: { completionItem: { snippetSupport: true } },
+                    hover: { contentFormat: ['plaintext', 'markdown'] },
+                    definition: { linkSupport: false },
+                    documentSymbol: { hierarchicalDocumentSymbolSupport: true },
+                    rename: { prepareSupport: false },
+                    semanticTokens: {
+                        requests: { full: true },
+                        tokenTypes: SEMANTIC_TOKEN_TYPES,
+                        tokenModifiers: [],
+                        formats: ['relative'],
                     },
-                });
-            }
-        });
-    }, 100);
+                },
+                workspace: { symbol: {} },
+            },
+        }, { timeout: 10000 });
+    } catch (error) {
+        console.error('Powang LSP initialize failed:', error);
+        vscode.window.showErrorMessage(`Powang LSP initialize failed: ${error.message}`);
+        return;
+    }
+    if (serverProcess !== proc) return;
+
+    protocol.send({ jsonrpc: '2.0', method: 'initialized', params: {} });
+    vscode.workspace.textDocuments.forEach(doc => {
+        if (doc.languageId === 'powang') {
+            protocol.send({
+                jsonrpc: '2.0',
+                method: 'textDocument/didOpen',
+                params: {
+                    textDocument: {
+                        uri: doc.uri.toString(),
+                        languageId: 'powang',
+                        version: doc.version,
+                        text: doc.getText(),
+                    },
+                },
+            });
+        }
+    });
 }
 
 function activate(context) {
     diagnosticCollection = vscode.languages.createDiagnosticCollection('powang');
 
-    startServer(context);
+    startServer(context).catch(error => {
+        console.error('Powang LSP start failed:', error);
+        vscode.window.showErrorMessage(`Powang LSP start failed: ${error.message}`);
+    });
 
     const restartCommand = vscode.commands.registerCommand('powang.server.restart', () => {
         isDisposing = true;
         stopServer();
         isDisposing = false;
-        startServer(context);
+        startServer(context).catch(error => {
+            console.error('Powang LSP restart failed:', error);
+            vscode.window.showErrorMessage(`Powang LSP restart failed: ${error.message}`);
+        });
     });
     context.subscriptions.push(restartCommand);
 
@@ -608,24 +659,7 @@ function activate(context) {
     });
 
     const semanticLegend = new vscode.SemanticTokensLegend(
-        [
-            'namespace',
-            'type',
-            'parameter',
-            'variable',
-            'property',
-            'function',
-            'method',
-            'macro',
-            'keyword',
-            'comment',
-            'string',
-            'number',
-            'operator',
-            'builtin',
-            'builtinType',
-            'constant',
-        ],
+        SEMANTIC_TOKEN_TYPES,
         []
     );
     const semanticProvider = vscode.languages.registerDocumentSemanticTokensProvider('powang', {

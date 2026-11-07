@@ -8,6 +8,9 @@
   actions until a token-aware formatter and safe import editor exist.
 - Hardened JSON-RPC framing with header validation, frame size limits, broken
   pipe handling and a post-shutdown request guard.
+- The client now waits for the initialize response before sending `initialized`
+  and `didOpen`, advertises the semantic token legend, answers server requests,
+  and rejects pending requests when the server stops.
 
 ## 0.14.2
 
