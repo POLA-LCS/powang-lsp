@@ -5,12 +5,13 @@ Syntax highlighting, diagnostics and completion for the [Powang](https://github.
 ## Features
 
 - **Syntax highlighting** via TextMate grammar and semantic tokens, including typed arrays,
-  pattern matching, destructuring, interpolation and null-safe operators
+  loops, loop labels, slicing, pattern matching, destructuring, interpolation and null-safe operators
 - **Distinct colors** for builtins, builtin types, user types, module names, functions,
-  methods, parameters, properties, macros, constants, variables and keywords
-- **Diagnostics** from the parser and gradual type checker, including typed array element checks
+  methods, parameters, properties, macros, constants, variables, loop labels and keywords
+- **Diagnostics** from the parser and gradual type checker, including typed array element
+  checks and loop warnings
 - **Context-aware completion** for keywords, builtins, types, functions, variables, modules,
-  type members and snippets, with documentation for every item
+  loop labels, type members and snippets, with documentation for every item
 - **Rich hover** with builtin documentation, declaration comments, signatures and variable types
 - **Signature help** for functions, methods, module members and builtins
 - **Go to definition, declaration and type definition**

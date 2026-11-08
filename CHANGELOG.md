@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `loop`, `break` and `continue` highlighting and documentation.
+- Loop label indexing, semantic tokens and active-label completion.
+- Loop diagnostics for `PW210` to `PW214`.
+- Slicing, `obj` and `error` type highlighting.
+
 ## 0.14.3
 
 ### Changed
