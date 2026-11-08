@@ -32,7 +32,7 @@ from src.state import fresh_state, reset_state, set_state  # noqa: E402
 KEYWORDS = [
     "if", "else", "for", "fun", "return", "use", "type", "extern",
     "try", "catch", "finally", "spawn", "export", "match", "case", "const", "as",
-    "enum",
+    "enum", "loop", "break", "continue",
 ]
 
 BUILTINS = [
@@ -42,7 +42,7 @@ BUILTINS = [
 
 BUILTIN_TYPES = {
     "any", "int", "num", "bool", "str", "arr", "map", "tup", "set", "handle",
-    "function", "file", "task",
+    "function", "file", "task", "error", "obj",
 }
 
 SEMANTIC_TOKEN_TYPES = [
@@ -62,6 +62,7 @@ SEMANTIC_TOKEN_TYPES = [
     "builtin",
     "builtinType",
     "constant",
+    "label",
 ]
 SEMANTIC_TYPE_INDEX = {name: index for index, name in enumerate(SEMANTIC_TOKEN_TYPES)}
 
@@ -264,6 +265,9 @@ KEYWORD_DOCS: dict[str, str] = {
     "const": "Declares a compile-time macro.",
     "as": "Casts a value to a type or introduces a module alias.",
     "this": "The current instance inside a method.",
+    "loop": "Runs a block repeatedly. `loop if condition` checks before each iteration.",
+    "break": "Exits the innermost loop or a labeled loop.",
+    "continue": "Continues the innermost loop or a labeled loop.",
 }
 
 CONSTANT_DOCS: dict[str, str] = {
@@ -1373,8 +1377,36 @@ def _collect_doc_comment(lines: list[str], index: int) -> str:
     return "\n".join(reversed(parts)).strip()
 
 
+def _loop_labels(lines: list[str]) -> list[dict]:
+    labels: list[dict] = []
+    for index, line in enumerate(lines):
+        match = re.search(r"\b(?:for|loop)\s+\|([A-Za-z_][A-Za-z0-9_]*)\|", line)
+        if not match:
+            continue
+        depth = 0
+        started = False
+        end_line = index
+        for cursor in range(index, len(lines)):
+            for char in lines[cursor]:
+                if char == "{":
+                    depth += 1
+                    started = True
+                elif char == "}":
+                    depth -= 1
+            if started and depth <= 0:
+                end_line = cursor
+                break
+        labels.append({
+            "name": match.group(1),
+            "line": index,
+            "end_line": end_line,
+        })
+    return labels
+
+
 def build_document_index(text: str, path: str | None = None) -> dict:
     lines = _lines(text)
+    labels = _loop_labels(lines)
     symbols: list[dict] = []
     by_name: dict[str, list[dict]] = {}
     modules: dict[str, str | None] = {}
@@ -1682,6 +1714,7 @@ def build_document_index(text: str, path: str | None = None) -> dict:
         "by_name": by_name,
         "modules": modules,
         "properties": properties,
+        "labels": labels,
         "lines": lines,
         "path": path,
     }
@@ -2084,6 +2117,21 @@ def handle_completion(request_id, params) -> None:
             sort_text="3",
             insert_text_format=2,
         )
+    label_match = re.search(r"\b(?:break|continue)\s+([A-Za-z_][A-Za-z0-9_]*)?$", before)
+    if label_match:
+        typed = label_match.group(1) or ""
+        for label in index.get("labels", []):
+            if label["line"] <= line <= label["end_line"] and label["name"].startswith(typed):
+                add(
+                    label["name"],
+                    6,
+                    "loop label",
+                    f"Loop label `{label['name']}`",
+                    sort_text="0",
+                )
+        send({"jsonrpc": "2.0", "id": request_id, "result": items})
+        return
+
     for name in KEYWORDS:
         add(name, 14, "keyword", f"**keyword** `{name}`\n\n{KEYWORD_DOCS.get(name, '')}", sort_text="4")
     for label, snippet, detail in (
@@ -3139,6 +3187,20 @@ def _classify_semantic_tokens(tokens: list[dict]) -> None:
             modules.add(word)
             declarations[index] = "namespace"
 
+    label_tokens: set[int] = set()
+    for index, token in enumerate(tokens):
+        if token.get("kind") == "identifier":
+            previous = tokens[index - 1] if index > 0 else None
+            if previous and previous.get("value") in {"break", "continue"}:
+                label_tokens.add(index)
+        if token.get("value") == "|" and index + 2 < len(tokens):
+            if tokens[index + 1].get("kind") == "identifier" and tokens[index + 2].get("value") == "|":
+                previous_index = index - 1
+                while previous_index >= 0 and tokens[previous_index].get("kind") == "comment":
+                    previous_index -= 1
+                if previous_index >= 0 and tokens[previous_index].get("value") in {"for", "loop"}:
+                    label_tokens.add(index + 1)
+
     index = 0
     while index < len(tokens):
         token = tokens[index]
@@ -3189,6 +3251,9 @@ def _classify_semantic_tokens(tokens: list[dict]) -> None:
             continue
 
         word = token["value"]
+        if token_index in label_tokens:
+            token["semantic"] = "label"
+            continue
         if token_index in declarations:
             token["semantic"] = declarations[token_index]
             continue

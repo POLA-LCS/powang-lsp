@@ -25,6 +25,7 @@ const SEMANTIC_TOKEN_TYPES = [
     'builtin',
     'builtinType',
     'constant',
+    'label',
 ];
 
 function toDiagnosticSeverity(severity) {

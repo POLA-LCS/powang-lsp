@@ -74,6 +74,20 @@
           "captures": {
             "1": { "name": "entity.name.namespace.powang" }
           }
+        },
+        {
+          "match": "\\b(for|loop)\\s+\\|([A-Za-z_][A-Za-z0-9_]*)\\|",
+          "captures": {
+            "1": { "name": "keyword.control.powang" },
+            "2": { "name": "variable.other.label.powang" }
+          }
+        },
+        {
+          "match": "\\b(break|continue)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.control.powang" },
+            "2": { "name": "variable.other.label.powang" }
+          }
         }
       ]
     },
@@ -84,7 +98,7 @@
       }
     },
     "keyword": {
-      "match": "\\b(if|else|for|fun|return|use|type|extern|try|catch|finally|spawn|export|match|case|const|as)\\b",
+      "match": "\\b(if|else|for|fun|return|use|type|extern|try|catch|finally|spawn|export|match|case|const|as|loop|break|continue)\\b",
       "name": "keyword.control.powang"
     },
     "literal": {
@@ -96,7 +110,7 @@
       ]
     },
     "builtin-type": {
-      "match": "\\b(any|int|num|bool|str|arr|tup|map|set|handle|function|file|task|error)\\b",
+      "match": "\\b(any|int|num|bool|str|arr|tup|map|set|handle|function|file|task|error|obj)\\b",
       "name": "support.type.primitive.powang"
     },
     "builtin": {

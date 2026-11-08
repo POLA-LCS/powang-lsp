@@ -92,6 +92,10 @@
       "settings": { "foreground": "#cba6f7" }
     },
     {
+      "scope": ["variable.other.label.powang"],
+      "settings": { "foreground": "#f7768e", "fontStyle": "italic" }
+    },
+    {
       "scope": ["variable.other.powang", "variable"],
       "settings": { "foreground": "#abb2bf" }
     },
@@ -116,6 +120,7 @@
     "operator": "#56b6c2",
     "builtin": "#e06c75",
     "builtinType": "#61afef",
-    "constant": "#e5c07b"
+    "constant": "#e5c07b",
+    "label": "#f7768e"
   }
 }
