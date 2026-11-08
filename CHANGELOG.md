@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.15.0
 
 ### Added
 
@@ -8,6 +8,10 @@
 - Loop label indexing, semantic tokens and active-label completion.
 - Loop diagnostics for `PW210` to `PW214`.
 - Slicing, `obj` and `error` type highlighting.
+
+### Changed
+
+- Bundled source synced with powang 0.9.0.
 
 ## 0.14.3
 
